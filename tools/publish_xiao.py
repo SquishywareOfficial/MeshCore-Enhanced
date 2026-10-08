@@ -108,19 +108,21 @@ def assemble(artifacts, sha, output):
     catalog = {'commit': sha, 'built_at': datetime.now(timezone.utc).isoformat(), 'builds': []}
     for target, (slug, title) in TARGETS.items():
         source, metadata = bundles[target]
-        destination = output / 'firmware' / slug
+        relative = Path('firmware') / sha / slug
+        destination = output / relative
         destination.mkdir(parents=True, exist_ok=True)
         for name in ('firmware.bin', 'firmware-merged.bin', 'partitions.bin', 'build.json'):
             shutil.copy2(source / name, destination / name)
         # This page offers fresh installs only. Application-only downloads are
         # provided separately for an existing node's supported USB/OTA workflow.
-        write_json(output / f'manifest-{slug}.json', {
+        write_json(destination / 'manifest.json', {
             'name': f'MeshCore Enhanced - {title}', 'version': metadata['version'],
             'new_install_prompt_erase': False, 'new_install_improv_wait_time': 0,
             'builds': [{'chipFamily': 'ESP32-S3', 'improv': False,
-                        'parts': [{'path': f'firmware/{slug}/firmware-merged.bin', 'offset': 0}]}],
+                        'parts': [{'path': 'firmware-merged.bin', 'offset': 0}]}],
         })
-        catalog['builds'].append({'slug': slug, 'title': title, **metadata})
+        catalog['builds'].append({'slug': slug, 'title': title,
+                                 'base_url': relative.as_posix(), **metadata})
     write_json(output / 'builds.json', catalog)
     (output / '.nojekyll').touch()
 

@@ -25,7 +25,7 @@ try {
     const description = document.createElement("p");
     description.textContent = descriptions[build.slug];
     const installer = document.createElement("esp-web-install-button");
-    installer.setAttribute("manifest", `manifest-${build.slug}.json`);
+    installer.setAttribute("manifest", `${build.base_url}/manifest.json`);
     const activate = document.createElement("button");
     activate.slot = "activate";
     activate.textContent = "Fresh install via USB";
@@ -38,7 +38,7 @@ try {
     downloads.className = "downloads";
     for (const [name, label] of [["firmware.bin", "Application image"], ["firmware-merged.bin", "Full install image"], ["build.json", "Checksums & build details"]]) {
       const link = document.createElement("a");
-      link.href = `firmware/${build.slug}/${name}`;
+      link.href = `${build.base_url}/${name}`;
       link.textContent = label;
       if (name.endsWith(".bin")) link.download = `${build.target}-${build.version}-${name}`;
       downloads.append(link);

@@ -43,10 +43,12 @@ class PublishingTests(unittest.TestCase):
     def test_complete_bundle_produces_six_matching_manifests(self):
         publishing.assemble(self.artifacts, self.sha, self.output)
         for slug, _ in publishing.TARGETS.values():
-            manifest = json.loads((self.output / f'manifest-{slug}.json').read_text())
+            directory = self.output / 'firmware' / self.sha / slug
+            manifest = json.loads((directory / 'manifest.json').read_text())
             self.assertEqual('ESP32-S3', manifest['builds'][0]['chipFamily'])
             self.assertEqual(0, manifest['builds'][0]['parts'][0]['offset'])
-            self.assertTrue((self.output / manifest['builds'][0]['parts'][0]['path']).is_file())
+            self.assertTrue((directory / manifest['builds'][0]['parts'][0]['path']).is_file())
+            self.assertIn(self.sha, str(directory))
         self.assertEqual(6, len(json.loads((self.output / 'builds.json').read_text())['builds']))
 
     def test_missing_build_stops_publication(self):

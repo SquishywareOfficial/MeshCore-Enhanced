@@ -61,8 +61,9 @@ the board's 8 MB partition layout. Packaging fails on an unexpected layout.
 
 `.github/workflows/build-xiao-wio.yml` builds six independent targets, then
 `tools/publish_xiao.py` verifies matching commits, checksums, chip and partitions
-before assembling the Pages artifact. Firmware and manifests are served from
-the same HTTPS site. No runtime GitHub API calls or cross-origin release downloads
+before assembling the Pages artifact. Firmware and manifests use commit-specific
+URLs on the same HTTPS site, preventing cached binaries from an earlier build
+being offered as the current one. No runtime GitHub API calls or cross-origin release downloads
 are required by the installer. Publishing requires GitHub Pages to use **GitHub
 Actions** as its source. No custom domain or upstream documentation domain is used.
 
