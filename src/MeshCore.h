@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <math.h>
+#include "helpers/OutputControl.h"
 
 #define MAX_HASH_SIZE        8
 #define PUB_KEY_SIZE        32
@@ -48,6 +49,20 @@ public:
   virtual float getMCUTemperature() { return NAN; }
   virtual bool setAdcMultiplier(float multiplier) { return false; };
   virtual float getAdcMultiplier() const { return 0.0f; }
+  // Optional external battery divider. Unsupported boards retain their normal readings.
+  virtual bool setBatteryConnected(bool connected) { return false; }
+  virtual int getBatteryConnected() const { return -1; } // -1 = unsupported
+  virtual bool setBatteryGpio(int pin) { return false; } // -1 selects board default
+  virtual int getBatteryGpio() const { return -1; } // -1 = unsupported
+  // Optional manual outputs. Assignment persistence belongs to CommonCLI;
+  // electrical ownership and startup safety belong to the board.
+  virtual int getOutputMask() const { return -1; }
+  virtual int getOutputState(int pin) const { return -1; }
+  virtual uint8_t restoreOutputs(uint8_t mask) { return 0; }
+  virtual OutputResult controlOutput(OutputOperation op, int pin, bool& changed) {
+    changed = false;
+    return OutputResult::Unsupported;
+  }
   virtual const char* getManufacturerName() const = 0;
   virtual void onBeforeTransmit() { }
   virtual void onAfterTransmit() { }

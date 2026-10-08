@@ -1,3 +1,21 @@
+## MeshCore Enhanced (Squishyware)
+
+This fork of [MeshCore](https://github.com/meshcore-dev/MeshCore) adds optional
+peripherals for the original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit:
+
+- Repeater, room server and companion: saved battery sensing enable/disable,
+  selectable ADC GPIO and divider calibration, using existing battery reporting.
+- Repeater and room server: fresh SHT4x temperature/humidity readings and
+  configurable digital outputs through USB or authenticated remote administration.
+- Room server `v1.17.1-sq2`: read-only memory, filesystem and history diagnostics.
+  This prepared build has not yet been verified on the device; the room cache
+  remains 32 messages in RAM. Larger persistent history is planned separately.
+
+See the [wiring, commands and build guide](variants/xiao_s3_wio/README.md) for
+setup, software verification and remaining hardware checks. Build the appropriate
+`Xiao_S3_WIO_*` target for these additions; the upstream web flasher distributes
+upstream firmware.
+
 ## About MeshCore
 
 MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.

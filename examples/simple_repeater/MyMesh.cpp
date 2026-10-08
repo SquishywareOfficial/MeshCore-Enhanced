@@ -1,4 +1,5 @@
 #include "MyMesh.h"
+#include <helpers/RepeaterCLIAccess.h>
 #include <algorithm>
 
 /* ------------------------------ Config -------------------------------- */
@@ -699,7 +700,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
     } else {
       MESH_DEBUG_PRINTLN("onPeerDataRecv: possible replay attack detected");
     }
-  } else if (type == PAYLOAD_TYPE_TXT_MSG && len > 5 && client->isAdmin()) { // a CLI command
+  } else if (acceptsRepeaterCLI(type == PAYLOAD_TYPE_TXT_MSG, len, client->isAdmin())) { // a CLI command
     uint32_t sender_timestamp;
     memcpy(&sender_timestamp, data, 4); // timestamp (by sender's RTC clock - which could be wrong)
     uint8_t flags = (data[4] >> 2);        // message attempt number, and other flags

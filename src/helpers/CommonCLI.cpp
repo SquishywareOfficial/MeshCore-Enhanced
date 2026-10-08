@@ -1,5 +1,8 @@
 #include <Arduino.h>
 #include "CommonCLI.h"
+#include "EnvironmentCLI.h"
+#include "OutputCLI.h"
+#include "BatteryCLI.h"
 #include "TxtDataHelpers.h"
 #include "AdvertDataHelpers.h"
 #include "TxtDataHelpers.h"
@@ -44,6 +47,8 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   //    fs->remove("/com_prefs");  // remove old
     }
   }
+  // Missing fields (including legacy binary preferences) keep the safe off default.
+  restoreOptionalIO(*_board, *_prefs);
 }
 
 void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy prefs loader
@@ -180,6 +185,10 @@ uint8_t CommonCLI::buildAdvertData(uint8_t node_type, uint8_t* app_data) {
 }
 
 void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
+  if (handleBatteryCommand(*_board, *_prefs, command, reply, 160,
+                           [this]() { savePrefs(); })) return;
+  if (handleOutputCommand(*_board, _prefs->outputs_mask, command, reply,
+                          [this]() { savePrefs(); })) return;
     if (memcmp(command, "poweroff", 8) == 0 || memcmp(command, "shutdown", 8) == 0) {
       _board->powerOff();  // doesn't return
     } else if (memcmp(command, "reboot", 6) == 0) {
@@ -763,19 +772,6 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     savePrefs();
     strcpy(reply, "OK");
 #endif
-  } else if (memcmp(config, "adc.multiplier ", 15) == 0) {
-    _prefs->adc_multiplier = atof(&config[15]);
-    if (_board->setAdcMultiplier(_prefs->adc_multiplier)) {
-      savePrefs();
-      if (_prefs->adc_multiplier == 0.0f) {
-        strcpy(reply, "OK - using default board multiplier");
-      } else {
-        sprintf(reply, "OK - multiplier set to %.3f", _prefs->adc_multiplier);
-      }
-    } else {
-      _prefs->adc_multiplier = 0.0f;
-      strcpy(reply, "Error: unsupported");
-    };
   #if defined(USE_LR2021)
   } else if (memcmp(config, "extra.sf ", 9) == 0) {
     strcpy(tmp, &config[9]);
@@ -806,6 +802,7 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
 
 void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* reply) {
   const char* config = &command[4];
+  if (handleEnvironmentGet(*_sensors, config, reply)) return;
   if (memcmp(config, "dutycycle", 9) == 0) {
     float dc = 100.0f / (_prefs->airtime_factor + 1.0f);
     int dc_int = (int)dc;
@@ -943,13 +940,6 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
   #else
       strcpy(reply, "Error: unsupported");
   #endif
-  } else if (memcmp(config, "adc.multiplier", 14) == 0) {
-    float adc_mult = _board->getAdcMultiplier();
-    if (adc_mult == 0.0f) {
-      strcpy(reply, "Error: unsupported");
-    } else {
-      sprintf(reply, "> %.3f", adc_mult);
-    }
   // Power management commands
   } else if (memcmp(config, "pwrmgt.support", 14) == 0) {
 #ifdef NRF52_POWER_MANAGEMENT

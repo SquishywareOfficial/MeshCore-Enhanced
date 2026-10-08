@@ -315,18 +315,30 @@ static void query_shtc3(uint8_t ch, uint8_t, CayenneLPP& lpp) {
 #endif
 
 #if ENV_INCLUDE_SHT4X
+static bool sht4x_detected = false;
 static uint8_t init_sht4x(TwoWire* wire, uint8_t addr) {
+#ifdef ESP32
+  boundEnvironmentBusTimeout(*wire);
+#endif
   // SensirionI2cSht4x::begin() does not probe the hardware; use serialNumber()
   // as the actual presence check since it performs a real I2C transaction.
   SHT4X.begin(*wire, addr);
   uint32_t serial = 0;
-  return (SHT4X.serialNumber(serial) == 0) ? 1 : 0;
+  sht4x_detected = SHT4X.serialNumber(serial) == 0;
+  return sht4x_detected ? 1 : 0;
+}
+static EnvironmentReading read_sht4x() {
+#ifdef ESP32
+  // Other clients share this bus; recheck the bound before each measurement.
+  if (sht4x_detected) boundEnvironmentBusTimeout(*TELEM_WIRE);
+#endif
+  return sampleSht4x(SHT4X, sht4x_detected, []() { return millis(); });
 }
 static void query_sht4x(uint8_t ch, uint8_t, CayenneLPP& lpp) {
-  float temperature, humidity;
-  if (SHT4X.measureLowestPrecision(temperature, humidity) == 0) {
-    lpp.addTemperature(ch, temperature);
-    lpp.addRelativeHumidity(ch, humidity);
+  const auto reading = read_sht4x();
+  if (reading.status == EnvironmentStatus::Success) {
+    lpp.addTemperature(ch, reading.temperature);
+    lpp.addRelativeHumidity(ch, reading.humidity);
   }
 }
 #endif
@@ -613,6 +625,9 @@ static const size_t SENSOR_TABLE_SIZE = (sizeof(SENSOR_TABLE) / sizeof(SENSOR_TA
 // ============================================================
 
 bool EnvironmentSensorManager::begin() {
+#if ENV_INCLUDE_SHT4X
+  sht4x_detected = false;
+#endif
   #if ENV_INCLUDE_GPS
   #ifdef RAK_WISBLOCK_GPS
   rakGPSInit();
@@ -948,3 +963,11 @@ void EnvironmentSensorManager::loop() {
   #endif  // ENV_INCLUDE_BME680_BSEC
 }
 #endif // ENV_INCLUDE_GPS || ENV_INCLUDE_BME680_BSEC
+
+EnvironmentReading EnvironmentSensorManager::readEnvironment() {
+#if ENV_INCLUDE_SHT4X && TELEM_SHT4X_ADDRESS == 0x44
+  return read_sht4x();
+#else
+  return {};
+#endif
+}

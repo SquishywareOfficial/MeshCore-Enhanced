@@ -1,6 +1,9 @@
 #pragma once
 #include <cstdint> // For uint8_t, uint32_t
 #include <helpers/ConfigSerializer.h>
+#ifdef XIAO_WIO_BATTERY_CLI
+#include <helpers/BatteryCLI.h>
+#endif
 
 #define TELEM_MODE_DENY            0
 #define TELEM_MODE_ALLOW_FLAGS     1     // use contact.flags
@@ -40,6 +43,11 @@ public:
   uint8_t autoadd_max_hops = 0;  // 0 = no limit, 1 = direct (0 hops), N = up to N-1 hops (max 64)
   char default_scope_name[31];
   uint8_t default_scope_key[16];
+#ifdef XIAO_WIO_BATTERY_CLI
+  uint8_t battery_connected = 0;
+  int8_t battery_gpio = -1;
+  float adc_multiplier = 0;
+#endif
 
 private:
   class RadioPrefs : public ConfigSerializer {  // COPIED from CommonCLI (for now)
@@ -121,6 +129,27 @@ private:
   };
   CompanionPrefs companion;
 
+#ifdef XIAO_WIO_BATTERY_CLI
+  class PowerPrefs : public ConfigSerializer {
+    NodePrefs* _parent;
+  protected:
+    void structure() override {
+      // Load through wider integers so corrupt values cannot wrap into an
+      // enabled switch or valid GPIO when narrowed to the stored field types.
+      int32_t connected = _parent->battery_connected;
+      int32_t gpio = _parent->battery_gpio;
+      def("batt_connected", connected);
+      def("batt_gpio", gpio);
+      def("adc_mult", _parent->adc_multiplier);
+      _parent->battery_connected = connected == 1 ? 1 : 0;
+      _parent->battery_gpio = gpio >= -128 && gpio <= 127 ? int8_t(gpio) : 0;
+    }
+  public:
+    PowerPrefs(NodePrefs* parent) : _parent(parent) { }
+  };
+  PowerPrefs power;
+#endif
+
 protected:
   void structure() override {
     def("name", node_name, sizeof(node_name));
@@ -132,13 +161,29 @@ protected:
     def("gps", gps);
     def("repeat", repeat);
     def("comp", companion);
+#ifdef XIAO_WIO_BATTERY_CLI
+    def("power", power);
+#endif
   }
 public:
-  NodePrefs() : radio(this), gps(this), companion(this) {
+  NodePrefs() : radio(this), gps(this), companion(this)
+#ifdef XIAO_WIO_BATTERY_CLI
+    , power(this)
+#endif
+  {
     node_name[0] = 0;
     default_scope_name[0] = 0;
     memset(default_scope_key, 0, sizeof(default_scope_key));
   }
+#ifdef XIAO_WIO_BATTERY_CLI
+  // Called immediately after loading, before any battery status is requested.
+  // Startup restores hardware only; it never saves preferences.
+  template<class Board>
+  void applyBatterySettings(Board& board) const {
+    if (!board.setAdcMultiplier(adc_multiplier)) board.setAdcMultiplier(0);
+    restoreBatterySettings(board, *this);
+  }
+#endif
   // new accessor methods
   bool isRepeatEn() const { return repeat.disable_fwd == 0; }
   void setRepeatEn(bool en) { repeat.disable_fwd = en ? 0 : 1; }

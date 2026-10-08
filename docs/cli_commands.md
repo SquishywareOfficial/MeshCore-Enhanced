@@ -416,6 +416,46 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
+#### Enable an optional external battery divider
+
+**Usage:**
+- `get battery.connected`
+- `set battery.connected on`
+- `set battery.connected off`
+
+**Default:** `off`, including when upgrading existing preferences.
+
+Supported by this checkout's Wio repeater, room-server and all four companion builds. Install the external
+divider described in [the board guide](../variants/xiao_s3_wio/README.md) before
+enabling. This is a manual setting, not battery-presence detection.
+
+The setting takes effect immediately and survives reboot. Off stops ADC sampling
+and returns 0 mV (unavailable); calibration is retained. Repeater/room USB and
+authenticated remote admin consoles can change it. Companion uses the existing
+phone local Command Line over BLE or a framed USB/serial/Wi-Fi client. Unsupported boards return `Error: unsupported`
+and retain their existing battery behaviour. Only `on` and `off` are accepted.
+
+---
+
+#### Select an external battery divider GPIO
+
+**Usage:**
+- `get battery.gpio`
+- `set battery.gpio <gpio-number>`
+- `set battery.gpio default`
+
+Supported by this checkout's Wio repeater, room-server and companion builds. Accepts chip GPIO
+numbers **1 (D0), 2 (D1), or 4 (D3)**. The default is GPIO1/D0. Other pins are
+rejected to avoid radio, I2C and strapping-pin conflicts. GPIO selection is saved
+per node and applies on reboot; missing preferences use the board default.
+
+Run `set battery.connected off` before changing the pin. Selecting a pin while
+off does not initialise or sample it. Install the divider on the matching pin
+before re-enabling. Repeater/room USB and authenticated remote admin consoles,
+and the companion local phone/client Command Line, support pin selection.
+
+---
+
 #### Fine-tune the battery reading
 **Usage:**
 - `get adc.multiplier`
@@ -426,7 +466,10 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 **Default:** `0.0` (value defined by board)
 
-**Note:** Returns "Error: unsupported by this board" if hardware doesn't support it
+**Note:** Unsupported hardware returns `Error: unsupported`. Wio calibration
+defaults to 2.0 for equal divider resistors; zero restores the board default.
+Malformed/non-finite/out-of-range arguments return `Error: invalid multiplier`
+without replacing the saved calibration.
 
 ---
 
@@ -1191,3 +1234,82 @@ Ethernet support is available on RAK4631 boards with a RAK13800 (W5100S) Etherne
 - Connect with any TCP client (e.g. `nc`, PuTTY) to access the same CLI available over serial.
 
 ---
+
+### Enclosure environment readings
+
+`get environment`, `get temperature` and `get humidity` each take one fresh
+high-precision SHT4x temperature/humidity sample. For example:
+`> SHT4x@0x44 temperature=23.6 C humidity=48.2 %RH`.
+The separate commands return `> 23.6 C` and `> 48.2 %RH`.
+Wio repeater and room-server console builds expose these readings.
+These use the external sensor, not the MCU temperature. No settings or app
+changes are required. USB and authenticated administrator CLI use the same path.
+
+Missing at startup: `Error: environment sensor not detected` (restart after
+connecting it). Failed/non-finite/timed-out reading:
+`Error: environment sensor read failed`. Builds without the interface/driver:
+`Error: unsupported`. Existing sensor settings commands are unchanged.
+
+### XIAO S3 Wio repeater and room-server digital outputs
+
+These commands use chip GPIO numbers and are available through USB and the
+existing authenticated administrator CLI. The room server requires admin
+CLI messages; ordinary posts and guests cannot execute these commands. Outputs
+are not enabled on companions. Other boards return `Error: unsupported`.
+
+| Command | Result |
+| --- | --- |
+| `output configure <gpio>` | Assign initially LOW; repeated configuration preserves the current state |
+| `output on <gpio>` | Set a configured output HIGH |
+| `output off <gpio>` | Set a configured output LOW |
+| `output status` | Sorted logical states, e.g. `> 2=off 4=on 43=off`; empty: `> none` |
+| `output remove <gpio>` | LOW, then INPUT; already absent: no GPIO access |
+
+Successful mutations/no-ops return `OK`. Accept only decimal GPIO numbers
+1, 2, 4, 43 and 44, with the exact argument count. Errors: `Error: usage`,
+`Error: invalid GPIO`, `Error: GPIO reserved`, `Error: output not configured`.
+Battery GPIO is reserved even with sensing off. Active peripheral/console pin
+claims also reserve pins. Disable sensing before changing battery GPIO; selection
+onto an assigned output is rejected (including `default`) without moving it.
+
+Only assignments are saved (`power.outputs_mask`); on/off states are not.
+Every restart restores allowed assignments LOW. No state-switch or repeated
+no-op writes preferences. Corrupt/reserved restored bits are ignored in memory;
+startup does not automatically rewrite the stored mask.
+
+
+### Wio companion local battery Command Line
+
+The existing phone app's Settings -> Extra Tools -> Command Line sends local
+commands to the connected companion over Bluetooth. Supported commands are the
+`get`/`set` forms of `battery.connected`, `battery.gpio` and `adc.multiplier`
+described above. For example: `get battery.connected`, then, with the divider
+installed, `set battery.connected on`. Settings are saved across reboot.
+
+This is a battery-only console. Other commands, including `get name`, `ver`,
+environment reads and output control, return `Unknown command`. Normal USB/serial/
+Wi-Fi companions use the same framed client interface, rather than raw serial
+text. Repeater/room remote administration remains a separate authenticated path.
+
+Transport: command 66 + text; reply 29 + text. Optional `hh|` request identifiers
+are echoed for success, argument errors and unknown commands. A trailing NUL or
+zero padding is accepted; non-padding bytes after NUL and oversized/empty commands
+are rejected before applying settings. The implementation is a limited upstream
+backport and does not claim complete v14 protocol support.
+
+
+### Custom XIAO S3 Wio room diagnostics (sq2)
+
+Available only in the custom room build with `XIAO_WIO_ROOM_DIAGNOSTICS=1`:
+
+| Command | Read-only result |
+|---|---|
+| `get memory` | Managed internal RAM and PSRAM heap total/free/largest block, in bytes |
+| `get storage` | SPIFFS usable total/used/free bytes; filesystem overhead excluded from total |
+| `get history` | Current RAM post count/capacity/array bytes and oldest/newest room timestamps |
+
+Use the room USB console or authenticated remote admin CLI. Prefixes are echoed
+and replies are bounded. Internal heap figures exclude static build data; PSRAM
+zero means none exposed by the framework getters. Heap usage is total minus free.
+No preferences, GPIO states, history or client sync position are modified.
+These diagnostics do not enlarge the current 32-post volatile cache.

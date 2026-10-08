@@ -2,6 +2,9 @@
 
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
+#ifdef XIAO_WIO_BATTERY_CLI
+#include <helpers/CompanionBatteryCLI.h>
+#endif
 
 #define CMD_APP_START                 1
 #define CMD_SEND_TXT_MSG              2
@@ -934,6 +937,9 @@ void MyMesh::begin(bool has_display) {
 
   // load persisted prefs
   _store->loadPrefs(_prefs);
+#ifdef XIAO_WIO_BATTERY_CLI
+  _prefs.applyBatterySettings(board);
+#endif
   sensors.node_lat = _prefs.node_lat;
   sensors.node_lon = _prefs.node_lon;
 
@@ -1020,6 +1026,14 @@ void MyMesh::startInterface(BaseSerialInterface &serial) {
 }
 
 void MyMesh::handleCmdFrame(size_t len) {
+#ifdef XIAO_WIO_BATTERY_CLI
+  if (len && cmd_frame[0] == COMPANION_CMD_RUN_CLI_COMMAND) {
+    const size_t reply_len = handleCompanionBatteryCLIFrame(board, _prefs,
+      cmd_frame, len, out_frame, sizeof(out_frame), [this]() { savePrefs(); });
+    if (reply_len) _serial->writeFrame(out_frame, reply_len);
+    return;
+  }
+#endif
   if (cmd_frame[0] == CMD_DEVICE_QUERY && len >= 2) { // sent when app establishes connection
     app_target_ver = cmd_frame[1];                    // which version of protocol does app understand
 

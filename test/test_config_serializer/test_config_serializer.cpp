@@ -217,6 +217,45 @@ TEST(NodePrefs, FemGainSettingsRoundTrip) {
 
 // ── main ───────────────────────────────────────────────────────
 
+TEST(NodePrefs, BatteryConnectedRoundTrip) {
+    NodePrefs saved;
+    saved.outputs_mask = 26;
+    saved.battery_connected = 1;
+    saved.battery_gpio = 4;
+    saved.adc_multiplier = 2.05f;
+    MockPrintStream output;
+    ASSERT_TRUE(saved.saveSerial(output));
+    std::string serialised(reinterpret_cast<const char*>(output.getBytes()), output.getLength());
+    MockInputStream input(serialised.c_str());
+    NodePrefs loaded;
+    ASSERT_TRUE(loaded.loadSerial(input));
+    EXPECT_EQ(26, loaded.outputs_mask);
+    EXPECT_EQ(1, loaded.battery_connected);
+    EXPECT_EQ(4, loaded.battery_gpio);
+    EXPECT_FLOAT_EQ(2.05f, loaded.adc_multiplier);
+
+    loaded.battery_connected = 0;
+    MockPrintStream disabledOutput;
+    ASSERT_TRUE(loaded.saveSerial(disabledOutput));
+    std::string disabled(reinterpret_cast<const char*>(disabledOutput.getBytes()), disabledOutput.getLength());
+    MockInputStream disabledInput(disabled.c_str());
+    ASSERT_TRUE(saved.loadSerial(disabledInput));
+    EXPECT_EQ(0, saved.battery_connected);
+    EXPECT_EQ(4, saved.battery_gpio);
+    EXPECT_FLOAT_EQ(2.05f, saved.adc_multiplier);
+}
+
+TEST(NodePrefs, ExistingPreferencesKeepBatteryDisconnected) {
+    NodePrefs loaded;
+    MockInputStream input("{name:\"Existing repeater\",power:{adc_mult:2.05,pwr_sav_en:0}}");
+    ASSERT_TRUE(loaded.loadSerial(input));
+    EXPECT_EQ(0, loaded.outputs_mask);
+    EXPECT_EQ(0, loaded.battery_connected);
+    EXPECT_EQ(-1, loaded.battery_gpio);
+    EXPECT_FLOAT_EQ(2.05f, loaded.adc_multiplier);
+    EXPECT_STREQ("Existing repeater", loaded.node_name);
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

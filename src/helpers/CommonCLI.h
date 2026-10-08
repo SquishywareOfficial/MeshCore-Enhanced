@@ -62,6 +62,9 @@ public:
   uint8_t advert_loc_policy = 0;
   uint32_t discovery_mod_timestamp = 0;
   float adc_multiplier = 0;
+  uint8_t battery_connected = 0; // optional external divider; off on existing/blank nodes
+  uint8_t outputs_mask = 0; // assignments only; GPIO states are never persisted
+  int8_t battery_gpio = -1; // board default when missing from older preferences
   char owner_info[120];
   uint8_t rx_boosted_gain = 0; // power settings
   uint8_t radio_fem_rxgain = 0; // LoRa FEM RX gain setting
@@ -133,6 +136,9 @@ private:
   protected:
     void structure() override {
       def("adc_mult", _parent->adc_multiplier);
+      def("batt_connected", _parent->battery_connected);
+      def("batt_gpio", _parent->battery_gpio);
+      def("outputs_mask", _parent->outputs_mask);
       def("pwr_sav_en", _parent->powersaving_enabled);
     }
   public:

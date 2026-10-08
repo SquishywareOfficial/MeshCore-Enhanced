@@ -897,6 +897,9 @@ void MyMesh::formatPacketStatsReply(char *reply) {
 }
 
 void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply) {
+#ifdef XIAO_WIO_ROOM_DIAGNOSTICS
+  char* const reply_start = reply;
+#endif
   if (region_load_active) {
     if (StrHelper::isBlank(command)) {  // empty/blank line, signal to terminate 'load' operation
       region_map = temp_map;  // copy over the temp instance as new current map
@@ -939,6 +942,42 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     reply += 3;
     command += 3;
   }
+
+#ifdef XIAO_WIO_ROOM_DIAGNOSTICS
+  // Read-only diagnostics. Keep correlation-prefix space inside the reply bound.
+  const size_t reply_capacity = 160 - size_t(reply - reply_start);
+  if (!strcmp(command, "get memory")) {
+    snprintf(reply, reply_capacity,
+      "> ram total=%lu free=%lu largest=%lu; psram total=%lu free=%lu largest=%lu",
+      (unsigned long)ESP.getHeapSize(), (unsigned long)ESP.getFreeHeap(),
+      (unsigned long)ESP.getMaxAllocHeap(), (unsigned long)ESP.getPsramSize(),
+      (unsigned long)ESP.getFreePsram(), (unsigned long)ESP.getMaxAllocPsram());
+    return;
+  }
+  if (!strcmp(command, "get storage")) {
+    const size_t total = SPIFFS.totalBytes(), used = SPIFFS.usedBytes();
+    if (!total) snprintf(reply, reply_capacity, "Error: filesystem unavailable");
+    else snprintf(reply, reply_capacity, "> fs total=%lu used=%lu free=%lu",
+      (unsigned long)total, (unsigned long)used,
+      (unsigned long)(total >= used ? total - used : 0));
+    return;
+  }
+  if (!strcmp(command, "get history")) {
+    unsigned count = 0;
+    uint32_t oldest = 0, newest = 0;
+    for (const auto& post : posts) {
+      if (!post.post_timestamp) continue;
+      ++count;
+      if (!oldest || post.post_timestamp < oldest) oldest = post.post_timestamp;
+      if (post.post_timestamp > newest) newest = post.post_timestamp;
+    }
+    snprintf(reply, reply_capacity,
+      "> ram posts=%u capacity=%u bytes=%lu oldest=%lu newest=%lu",
+      count, unsigned(MAX_UNSYNCED_POSTS), (unsigned long)sizeof(posts),
+      (unsigned long)oldest, (unsigned long)newest);
+    return;
+  }
+#endif
 
   // handle ACL related commands
   if (memcmp(command, "setperm ", 8) == 0) {   // format:  setperm {pubkey-hex} {permissions-int8}

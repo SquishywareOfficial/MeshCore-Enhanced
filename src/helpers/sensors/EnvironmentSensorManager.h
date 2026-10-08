@@ -42,6 +42,7 @@ public:
   EnvironmentSensorManager(){};
   #endif
   bool begin() override;
+  EnvironmentReading readEnvironment() override;
   bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) override;
   #if ENV_INCLUDE_GPS || defined(ENV_INCLUDE_BME680_BSEC)
   void loop() override;
