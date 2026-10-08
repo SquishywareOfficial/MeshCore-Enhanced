@@ -103,6 +103,12 @@ pin. All supported pin choices use the same firmware image.
 
 ## Build and update
 
+Main-branch pushes automatically build all six standard XIAO roles. Use the
+[firmware downloads and USB flasher](https://squishywareofficial.github.io/MeshCore-Enhanced/)
+for fresh installations, or download the application image for an existing node's
+supported update flow. See the [build and flashing guide](../../docs/enhanced_builds.md)
+for version identification, checksums and settings preservation.
+
 ```sh
 pio run -e Xiao_S3_WIO_repeater
 pio run -e Xiao_S3_WIO_repeater -t mergebin

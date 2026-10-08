@@ -1,4 +1,5 @@
 name: Setup Build Environment
+description: Install Python and PlatformIO and prepare reusable build metadata
 runs:
   using: "composite"
   steps:

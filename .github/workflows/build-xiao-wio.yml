@@ -1,0 +1,85 @@
+name: Build XIAO S3 Wio and publish flasher
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xiao-wio-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-build-environment
+      - name: Test firmware and publishing tools
+        run: |
+          pio test -e native -e native_kiss_modem -e native_environment_manager -e native_xiao_companion -e native_xiao_outputs_uart
+          python -m unittest discover -s test/publishing -v
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - Xiao_S3_WIO_repeater
+          - Xiao_S3_WIO_room_server
+          - Xiao_S3_WIO_companion_radio_ble
+          - Xiao_S3_WIO_companion_radio_usb
+          - Xiao_S3_WIO_companion_radio_serial
+          - Xiao_S3_WIO_companion_radio_wifi
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-build-environment
+      - name: Build firmware
+        env:
+          FIRMWARE_VERSION: v1.17.1-sq
+          DISABLE_DEBUG: '1'
+        run: bash build.sh build-firmware "${{ matrix.target }}"
+      - name: Package and verify browser firmware
+        run: python tools/publish_xiao.py package --target "${{ matrix.target }}" --sha "$GITHUB_SHA" --output "dist/${{ matrix.target }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xiao-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [test, build]
+    if: github.repository == 'SquishywareOfficial/MeshCore-Enhanced' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: xiao-*
+          path: downloaded
+      - name: Assemble matching firmware and manifests
+        run: python tools/publish_xiao.py site --artifacts downloaded --sha "$GITHUB_SHA" --output .pio/flasher-site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .pio/flasher-site
+      - name: Deploy flasher
+        id: deployment
+        uses: actions/deploy-pages@v4

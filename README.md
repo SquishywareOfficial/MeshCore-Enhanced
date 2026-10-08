@@ -1,5 +1,8 @@
 ## MeshCore Enhanced (Squishyware)
 
+[USB flasher and firmware downloads](https://squishywareofficial.github.io/MeshCore-Enhanced/)
+ | [XIAO build status](https://github.com/SquishywareOfficial/MeshCore-Enhanced/actions/workflows/build-xiao-wio.yml)
+
 This fork of [MeshCore](https://github.com/meshcore-dev/MeshCore) adds optional
 peripherals for the original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit:
 

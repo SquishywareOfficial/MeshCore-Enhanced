@@ -20,3 +20,8 @@ platformio.local.ini
 
 # Local planning and deployment notes (any directory).
 TODO*
+
+# Python tools and packaged CI output.
+__pycache__/
+*.py[cod]
+dist/
