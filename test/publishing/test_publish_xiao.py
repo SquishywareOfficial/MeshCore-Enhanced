@@ -50,6 +50,8 @@ class PublishingTests(unittest.TestCase):
             self.assertTrue((directory / manifest['builds'][0]['parts'][0]['path']).is_file())
             self.assertIn(self.sha, str(directory))
         self.assertEqual(6, len(json.loads((self.output / 'builds.json').read_text())['builds']))
+        self.assertTrue((self.output / 'flash-core.js').is_file())
+        self.assertIn('Erase data', (self.output / 'index.html').read_text())
 
     def test_missing_build_stops_publication(self):
         self.build_metadata().unlink()

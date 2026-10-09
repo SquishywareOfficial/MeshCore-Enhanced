@@ -113,8 +113,9 @@ def assemble(artifacts, sha, output):
         destination.mkdir(parents=True, exist_ok=True)
         for name in ('firmware.bin', 'firmware-merged.bin', 'partitions.bin', 'build.json'):
             shutil.copy2(source / name, destination / name)
-        # This page offers fresh installs only. Application-only downloads are
-        # provided separately for an existing node's supported USB/OTA workflow.
+        # Legacy/full-install manifest for external ESP Web Tools users only.
+        # The page's own installer checks partitions and selects the active slot
+        # for a data-preserving application update; it does not use this manifest.
         write_json(destination / 'manifest.json', {
             'name': f'MeshCore Enhanced - {title}', 'version': metadata['version'],
             'new_install_prompt_erase': False, 'new_install_improv_wait_time': 0,

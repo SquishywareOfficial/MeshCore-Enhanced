@@ -6,7 +6,6 @@
   <title>MeshCore Enhanced · XIAO firmware</title>
   <meta name="description" content="Install Squishyware's MeshCore Enhanced firmware on a Seeed XIAO ESP32-S3 with the Wio-SX1262 B2B radio kit.">
   <link rel="stylesheet" href="styles.css">
-  <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
   <script type="module" src="installer.js"></script>
 </head>
 <body>
@@ -19,9 +18,9 @@
       <p id="build-status" role="status">Loading the latest successful build…</p>
     </section>
     <section class="install-notice" aria-labelledby="before-title">
-      <h2 id="before-title">New device or fresh start?</h2>
-      <p><strong>Fresh installation erases saved settings, identity keys and stored data.</strong> These buttons install the complete firmware on the original 8 MB XIAO ESP32-S3 with the Wio B2B radio board. An ESP32-S3 chip match alone cannot identify the radio board.</p>
-      <p>Updating an existing node? Download its <strong>application image</strong> below and use your supported USB or OTA update procedure. Back up your identity and settings, check the partition layout and active app slot, and verify them afterward. This page does not perform an application-only browser update.</p>
+      <h2 id="before-title">Install or update over USB</h2>
+      <p>Choose <strong>Install via USB</strong>. Leave <strong>Erase data</strong> unchecked to update a compatible MeshCore installation while keeping its saved settings, identity keys and stored data. Updates restart the device, clearing messages held only in RAM. Back up important settings before updating and select your node’s existing role.</p>
+      <p>For a new device or a fresh start, check <strong>Erase data</strong>. This erases all settings, identity keys and stored data. These builds are for the original 8 MB XIAO ESP32-S3 with the Wio B2B radio board.</p>
     </section>
     <section aria-labelledby="choose-title">
       <p class="eyebrow">Choose a role</p><h2 id="choose-title">What will this node do?</h2>
@@ -32,8 +31,8 @@
       <h2 id="next-title">From USB to your mesh</h2>
       <ol>
         <li><strong>Connect the kit.</strong> Attach its LoRa antenna and use a USB data cable. Close any app or terminal using the serial port. Use desktop Chrome or Edge.</li>
-        <li><strong>Choose a role and install.</strong> Select its USB port. If it does not appear, hold BOOT while connecting USB; after installation, reconnect without holding BOOT if needed.</li>
-        <li><strong>Configure your node.</strong> Use the MeshCore phone app for a companion, or <a href="https://config.meshcore.io">config.meshcore.io</a> for a repeater or chatroom. Set your name, passwords and regional radio preset before deployment. Battery sensing starts off; enable it only after fitting the divider.</li>
+        <li><strong>Choose a role and install.</strong> Keep Erase data unchecked for an update, or check it for a fresh installation. Select the USB port. If it does not appear, hold BOOT while connecting USB; after installation, reconnect without holding BOOT if needed.</li>
+        <li><strong>Check or configure your node.</strong> Use the MeshCore phone app for a companion, or <a href="https://config.meshcore.io">config.meshcore.io</a> for a repeater or chatroom. After a fresh installation, set your name, passwords and regional radio preset. Enable battery sensing only after fitting the divider.</li>
       </ol>
       <p><a href="https://github.com/SquishywareOfficial/MeshCore-Enhanced/blob/main/variants/xiao_s3_wio/README.md">Wiring, commands and build guide ↗</a></p>
     </section>
