@@ -181,6 +181,9 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     
     populateContactFromAdvert(*from, id, parser, timestamp);
     from->sync_since = 0;
+#if defined(XIAO_WIO_ROOM_ACK_BACKPRESSURE) && XIAO_WIO_ROOM_ACK_BACKPRESSURE
+    from->signedReceipt = SignedMessageReceipt{};
+#endif
     from->shared_secret_valid = false;
   }
 
@@ -263,11 +266,11 @@ void BaseChatMesh::onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender
         if (path) sendFloodScoped(from, path);
       }
     } else if (flags == TXT_TYPE_SIGNED_PLAIN) {
+      if (len < 9 || !tryAcceptSignedMessage(from, packet, timestamp, &data[5], (const char*)&data[9])) return;
       if (timestamp > from.sync_since) {  // make sure 'sync_since' is up-to-date
         from.sync_since = timestamp;
       }
       from.lastmod = getRTCClock()->getCurrentTime(); // update last heard time
-      onSignedMessageRecv(from, packet, timestamp, &data[5], (const char *) &data[9]);  // let UI know
 
       uint32_t ack_hash;    // calc truncated hash of the message timestamp + text + OUR pub_key, to prove to sender that we got it
       mesh::Utils::sha256((uint8_t *) &ack_hash, 4, data, 9 + strlen((char *)&data[9]), self_id.pub_key, PUB_KEY_SIZE);

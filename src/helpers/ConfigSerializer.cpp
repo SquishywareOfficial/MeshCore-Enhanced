@@ -1,5 +1,19 @@
 #include "ConfigSerializer.h"
 
+void ConfigSerializer::defBounded(const char* key, uint16_t& value, uint16_t minimum, uint16_t maximum, uint16_t fallback) {
+  if (_context->op() == OP::WRITE) { def(key, value); return; }
+  if (!_context->keyMatch(_depth, key)) return;
+  const char* token = _context->getToken();
+  uint32_t n = 0; bool valid = *token != 0;
+  for (; *token; ++token) {
+    if (*token < '0' || *token > '9' || n > maximum / 10) { valid = false; break; }
+    n = n * 10 + (*token - '0');
+    if (n > maximum) { valid = false; break; }
+  }
+  if (!valid || n < minimum) _context->boundedFallback = true;
+  value = valid && n >= minimum ? uint16_t(n) : fallback;
+}
+
 bool ConfigSerializer::saveSerial(Stream& s) {
   Context context(&s, OP::WRITE);
   _context = &context;  // set the context for structure() call
@@ -97,6 +111,7 @@ int ConfigSerializer::Context::readNext() {
 }
 
 bool ConfigSerializer::loadSerial(Stream& s) {
+  _boundedFallback = false;
   Context context(&s, OP::READ);
   _context = &context;  // set the context for structure() call
   uint8_t sp = 0;   // object nesting stack pointer
@@ -130,6 +145,7 @@ bool ConfigSerializer::loadSerial(Stream& s) {
   if (sp != 0 || next_tok == TOK_ERROR) {
     context.success = false;   // unmatched { }, or other parse error
   }
+  _boundedFallback = context.boundedFallback;
   _context = NULL;
   return context.success;
 }

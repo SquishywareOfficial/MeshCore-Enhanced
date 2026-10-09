@@ -339,3 +339,26 @@ BLE compatibility builds passed. Room and repeater local application images
 embed v1.17.1-sq3-dht. The chatroom partition binary is unchanged from the
 previous application update. Physical USB DHT11 readings and saved settings across reboot were verified
 on the chatroom on 2026-10-09. Remote phone/mesh telemetry remains unverified. Run PlatformIO builds sequentially in this Windows checkout.
+
+## Persistent room history
+
+The standard `Xiao_S3_WIO_room_server` image now stores the newest 2,000 posts
+and member delivery progress in the existing SPIFFS partition. Default catch-up
+is the newest 100 missing eligible posts, configurable from 1 to 2,000. This
+uses the same image whether optional batteries/sensors/outputs are installed.
+
+Use the room's USB console or authenticated remote administrator CLI:
+
+```text
+get history
+get history.storage
+get history.playback
+set history.playback 2000
+history.users.list
+get history.clock
+```
+
+The four standard XIAO companion builds include room queue backpressure and
+retry deduplication; other boards keep their existing behavior. See the
+[complete history guide](../../docs/room_history.md) for fresh-join rules,
+member purges, clock setup, safe upgrades, durability and acceptance limits.

@@ -1,4 +1,5 @@
 #include "MyMesh.h"
+#include <helpers/OfflineMessageQueue.h>
 
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
@@ -219,28 +220,8 @@ bool MyMesh::Frame::isChannelMsg() const {
          buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
 }
 
-void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
-  if (offline_queue_len >= OFFLINE_QUEUE_SIZE) {
-    MESH_DEBUG_PRINTLN("WARN: offline_queue is full!");
-    int pos = 0;
-    while (pos < offline_queue_len) {
-      if (offline_queue[pos].isChannelMsg()) {
-        for (int i = pos; i < offline_queue_len - 1; i++) { // delete oldest channel msg from queue
-          offline_queue[i] = offline_queue[i + 1];
-        }
-        MESH_DEBUG_PRINTLN("INFO: removed oldest channel message from queue.");
-        offline_queue[offline_queue_len - 1].len = len;
-        memcpy(offline_queue[offline_queue_len - 1].buf, frame, len);
-        return;
-      }
-      pos++;
-    }
-    MESH_DEBUG_PRINTLN("INFO: no channel messages to remove from queue.");
-  } else {
-    offline_queue[offline_queue_len].len = len;
-    memcpy(offline_queue[offline_queue_len].buf, frame, len);
-    offline_queue_len++;
-  }
+bool MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
+  return enqueueOfflineMessage(offline_queue, offline_queue_len, OFFLINE_QUEUE_SIZE, frame, len);
 }
 
 int MyMesh::getFromOfflineQueue(uint8_t frame[]) {
@@ -432,35 +413,15 @@ ContactInfo*  MyMesh::processAck(const uint8_t *data) {
   return checkConnectionsAck(data);
 }
 
-void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet *pkt,
+bool MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet *pkt,
                           uint32_t sender_timestamp, const uint8_t *extra, int extra_len, const char *text) {
-  int i = 0;
-  if (app_target_ver >= 3) {
-    out_frame[i++] = RESP_CODE_CONTACT_MSG_RECV_V3;
-    out_frame[i++] = (int8_t)(pkt->getSNR() * 4);
-    out_frame[i++] = 0; // reserved1
-    out_frame[i++] = 0; // reserved2
-  } else {
-    out_frame[i++] = RESP_CODE_CONTACT_MSG_RECV;
-  }
-  memcpy(&out_frame[i], from.id.pub_key, 6);
-  i += 6; // just 6-byte prefix
-  uint8_t path_len = out_frame[i++] = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
-  out_frame[i++] = txt_type;
-  memcpy(&out_frame[i], &sender_timestamp, 4);
-  i += 4;
-  if (extra_len > 0) {
-    memcpy(&out_frame[i], extra, extra_len);
-    i += extra_len;
-  }
-  int tlen = strlen(text); // TODO: UTF-8 ??
-  if (i + tlen > MAX_FRAME_SIZE) {
-    tlen = MAX_FRAME_SIZE - i;
-  }
-  memcpy(&out_frame[i], text, tlen);
-  i += tlen;
-  addToOfflineQueue(out_frame, i);
-
+  uint8_t path_len = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
+  int i = renderContactMessage(out_frame, MAX_FRAME_SIZE, app_target_ver >= 3, pkt->getSNR(), from.id.pub_key,
+    path_len, txt_type, sender_timestamp, extra, extra_len, text);
+  bool accepted = i && addToOfflineQueue(out_frame, i);
+#if defined(XIAO_WIO_ROOM_ACK_BACKPRESSURE) && XIAO_WIO_ROOM_ACK_BACKPRESSURE
+  if (!accepted) return false;
+#endif
   if (_serial->isConnected()) {
     uint8_t frame[1];
     frame[0] = PUSH_CODE_MSG_WAITING; // send push 'tickle'
@@ -477,6 +438,7 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
     }
   }
 #endif
+  return accepted;
 }
 
 bool MyMesh::filterRecvFloodPacket(mesh::Packet* packet) {
@@ -544,6 +506,17 @@ void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uin
   dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
   queueMessage(from, TXT_TYPE_SIGNED_PLAIN, pkt, sender_timestamp, sender_prefix, 4, text);
 }
+
+#if defined(XIAO_WIO_ROOM_ACK_BACKPRESSURE) && XIAO_WIO_ROOM_ACK_BACKPRESSURE
+bool MyMesh::tryAcceptSignedMessage(const ContactInfo& from, mesh::Packet* packet, uint32_t timestamp,
+                                    const uint8_t* prefix, const char* text) {
+  bool accepted = acceptSignedMessage(from.signedReceipt, from.sync_since, timestamp, prefix, text, [&]() {
+    return queueMessage(from, TXT_TYPE_SIGNED_PLAIN, packet, timestamp, prefix, 4, text);
+  });
+  if (accepted) { markConnectionActive(from); dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY); }
+  return accepted;
+}
+#endif
 
 void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
                                   const char *text) {

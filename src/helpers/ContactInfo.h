@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 #include <Mesh.h>
+#if defined(XIAO_WIO_ROOM_ACK_BACKPRESSURE) && XIAO_WIO_ROOM_ACK_BACKPRESSURE
+#include "SignedMessageAcceptance.h"
+#endif
 
 #define OUT_PATH_UNKNOWN   0xFF
 
@@ -17,6 +20,9 @@ struct ContactInfo {
   uint32_t lastmod;  // by OUR clock
   int32_t gps_lat, gps_lon;    // 6 dec places
   uint32_t sync_since;
+#if defined(XIAO_WIO_ROOM_ACK_BACKPRESSURE) && XIAO_WIO_ROOM_ACK_BACKPRESSURE
+  mutable SignedMessageReceipt signedReceipt;
+#endif
 
   const uint8_t* getSharedSecret(const mesh::LocalIdentity& self_id) const {
     if (!shared_secret_valid) {

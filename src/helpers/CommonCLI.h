@@ -40,6 +40,9 @@ public:
   uint8_t sf = 0;
   uint8_t cr = 0;
   uint8_t allow_read_only = 0;
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  uint16_t history_playback = 100;
+#endif
   uint8_t multi_acks = 0;
   float bw = 0;
   uint8_t flood_max = 0;
@@ -170,6 +173,9 @@ private:
   protected:
     void structure() override {
       def("rd_only", _parent->allow_read_only);
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      defBounded("hist_playback", _parent->history_playback, 1, 2000, 100);
+#endif
     }
   public:
     RoomPrefs(NodePrefs* parent) : _parent(parent) { }
@@ -207,6 +213,7 @@ public:
 class CommonCLICallbacks {
 public:
   virtual void savePrefs() = 0;
+  virtual void onClockSet(uint32_t epoch) {} // successful authenticated civil-time input only
   virtual const char* getFirmwareVer() = 0;
   virtual const char* getBuildDate() = 0;
   virtual const char* getRole() = 0;

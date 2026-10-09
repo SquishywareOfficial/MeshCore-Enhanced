@@ -26,7 +26,8 @@ Each download includes the application image, complete installation image,
 partition table and `build.json` with its commit, version and SHA-256 checksums.
 CI version strings are `v1.17.1-sq-<short commit>` and fit the companion protocol's
 19-character version field. The build date is refreshed by upstream `build.sh`.
-Direct local builds retain their existing version defaults. On-air protocol
+Direct local room and companion builds identify this history work as
+`v1.17.1-sq4-hist`; this local label is not a published Release tag. On-air protocol
 versions and device settings are not changed by the publishing workflow.
 
 ## Install or update in the browser
@@ -44,7 +45,8 @@ unchanged before restarting. It refuses an incompatible layout, unreadable or
 ambiguous OTA selection, or an update awaiting boot confirmation; it never
 automatically falls back to erasing. This is an in-place USB update, not an
 atomic OTA update: keep USB connected until it finishes. The restart clears
-any messages stored only in RAM, including the current room cache.
+any messages stored only in RAM, including the legacy room cache. Enhanced XIAO
+room history stored in flash survives a compatible update without erasure.
 
 With Erase data **checked**, it explicitly erases the chip and writes the full
 installation image at offset zero. **This erases settings, identity keys and
@@ -91,3 +93,16 @@ The broad upstream PR build matrix and upstream unit-test job run only in the
 original repository; this fork's focused workflow covers the XIAO targets and
 native suites. The official MeshCore web flasher does not distribute this fork's
 custom images. Local `TODO*` notes and device backups are excluded from publication.
+
+## Persistent room history
+
+The standard XIAO room target retains the newest 2,000 posts in its existing
+SPIFFS partition. Catch-up defaults to the newest 100 missing eligible posts;
+`set history.playback 2000` increases it for future login sessions. Saved user
+progress survives room restarts. New or manually forgotten users start fresh.
+See [room history commands, recovery and update limits](room_history.md).
+
+Enhanced XIAO companions acknowledge room posts only after queue acceptance.
+A full queue pauses catch-up until the phone drains it and checks in again.
+Native protocol/storage checks cover this behavior; real phone, loaded heap/GC
+and power-loss testing remain a separate hardware acceptance step.

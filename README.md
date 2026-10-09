@@ -11,10 +11,14 @@ peripherals for the original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit:
   selectable ADC GPIO and divider calibration, using existing battery reporting.
 - Repeater and room server: selectable SHT4x or DHT11 temperature/humidity readings and
   configurable digital outputs through USB or authenticated remote administration.
-- Room server: read-only memory, filesystem and history diagnostics. The room
-  cache remains 32 messages in RAM. Larger persistent history is planned separately.
+- Room server: persistent history of the newest 2,000 posts, configurable
+  catch-up (1-2,000; default 100), saved member delivery progress, and manual
+  member cleanup. New users start fresh; returning users catch up on missing posts.
+- XIAO companions: signed room-message queue backpressure and retry deduplication.
+  Room memory/filesystem/history diagnostics remain available.
 
-See the [wiring, commands and build guide](variants/xiao_s3_wio/README.md) for
+See the [persistent room history guide](docs/room_history.md) and
+[wiring, commands and build guide](variants/xiao_s3_wio/README.md) for
 setup, software verification and remaining hardware checks. Build the appropriate
 `Xiao_S3_WIO_*` target for these additions; the upstream web flasher distributes
 upstream firmware.

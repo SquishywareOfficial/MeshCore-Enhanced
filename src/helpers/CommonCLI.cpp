@@ -8,6 +8,11 @@
 #include "AdvertDataHelpers.h"
 #include "TxtDataHelpers.h"
 #include <RTClib.h>
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+#include "room_history/SpiffsHistoryStorage.h"
+#include "room_history/HistoryPreferences.h"
+#include <memory>
+#endif
 
 #ifndef BRIDGE_MAX_BAUD
 #define BRIDGE_MAX_BAUD 115200
@@ -40,6 +45,9 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
 #endif
     if (file) {
       _prefs->loadSerial(file);   // new Serial prefs
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      if (_prefs->usedBoundedFallback()) Serial.println("WARN invalid history.playback restored as 100; preferences not rewritten.");
+#endif
       file.close();
     }
   } else if (fs->exists("/com_prefs")) {
@@ -150,6 +158,11 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy 
 }
 
 bool CommonCLI::savePrefs(FILESYSTEM* fs) {
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  room_history::SpiffsStorage storage;
+  std::unique_ptr<room_history::PreferenceBuffer> b(new (std::nothrow) room_history::PreferenceBuffer);
+  return b && room_history::savePreferences(storage, *_prefs, *b);
+#else
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   fs->remove("/prefs.json");
   File file = fs->open("/prefs.json", FILE_O_WRITE);
@@ -164,6 +177,7 @@ bool CommonCLI::savePrefs(FILESYSTEM* fs) {
     return success;
   }
   return false;
+#endif
 }
 
 #define MIN_LOCAL_ADVERT_INTERVAL   60
@@ -213,9 +227,10 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       strcpy(reply, "OK - Advert sent");
     } else if (memcmp(command, "clock sync", 10) == 0) {
       uint32_t curr = getRTCClock()->getCurrentTime();
-      if (sender_timestamp > curr) {
+      if (sender_timestamp > curr && sender_timestamp < UINT32_MAX) {
         getRTCClock()->setCurrentTime(sender_timestamp + 1);
         uint32_t now = getRTCClock()->getCurrentTime();
+        _callbacks->onClockSet(now);
         DateTime dt = DateTime(now);
         sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
       } else {
@@ -230,11 +245,18 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       DateTime dt = DateTime(now);
       sprintf(reply, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
     } else if (memcmp(command, "time ", 5) == 0) {  // set time (to epoch seconds)
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      uint64_t parsed;
+      if (!room_history::parseUnsigned(command + 5, UINT32_MAX, parsed) || parsed < 946684800ull) {
+        strcpy(reply, "ERR invalid UTC epoch"); return;
+      }
+#endif
       uint32_t secs = _atoi(&command[5]);
       uint32_t curr = getRTCClock()->getCurrentTime();
       if (secs > curr) {
         getRTCClock()->setCurrentTime(secs);
         uint32_t now = getRTCClock()->getCurrentTime();
+        _callbacks->onClockSet(now);
         DateTime dt = DateTime(now);
         sprintf(reply, "OK - clock set: %02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
       } else {

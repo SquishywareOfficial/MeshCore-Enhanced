@@ -24,6 +24,11 @@
 #include <helpers/RoutingPolicy.h>
 #include <RTClib.h>
 #include <target.h>
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+#include <helpers/room_history/SpiffsHistoryStorage.h>
+#include <helpers/room_history/HistoryPlayback.h>
+#include <helpers/room_history/HistoryAdmin.h>
+#endif
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -106,8 +111,21 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   unsigned long next_push;
   uint16_t _num_posted, _num_post_pushes;
   int next_client_idx;  // for round-robin polling
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  room_history::SpiffsStorage history_storage;
+  room_history::RoomHistory history{history_storage};
+  room_history::HistoryMembers history_members{history_storage};
+  room_history::HistoryClock history_clock;
+  room_history::HistoryPlayback playback{history, history_members};
+  room_history::HistoryAdmin history_admin{history, history_members, history_clock};
+  uint64_t historyUptime();
+  bool joinHistory(ClientInfo*, uint32_t since);
+  void reconcileHistorySessions();
+  room_history::Result storePost(const mesh::Identity&, uint32_t senderTimestamp, const char*, uint8_t kind);
+#else
   int next_post_idx;
   PostInfo posts[MAX_UNSYNCED_POSTS];   // cyclic queue
+#endif
   CayenneLPP telemetry;
   RegionEntry* load_stack[8];
   RegionEntry* recv_pkt_region;
@@ -119,8 +137,10 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t pending_cr;
   int  matching_peer_indexes[MAX_CLIENTS];
 
+#if !defined(XIAO_WIO_ROOM_HISTORY) || !XIAO_WIO_ROOM_HISTORY
   void addPost(ClientInfo* client, const char* postData);
   void storePost(const mesh::Identity& author, const char* postData);
+#endif
   void pushPostToClient(ClientInfo* client, PostInfo& post);
   uint8_t getUnsyncedCount(ClientInfo* client);
   bool processAck(const uint8_t *data);
@@ -179,6 +199,9 @@ public:
 
   void begin(FILESYSTEM* fs);
   void addSystemPost(const char* postData);
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  void onClockSet(uint32_t epoch) override { history_clock.set(epoch, historyUptime()); }
+#endif
 
   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
   const char* getBuildDate() override { return FIRMWARE_BUILD_DATE; }

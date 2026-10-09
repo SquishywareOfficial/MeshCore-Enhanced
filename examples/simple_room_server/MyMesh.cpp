@@ -1,4 +1,8 @@
 #include "MyMesh.h"
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+#include <helpers/room_history/HistoryReceive.h>
+#include <helpers/room_history/HistoryLogin.h>
+#endif
 
 #define REPLY_DELAY_MILLIS          1500
 #define PUSH_NOTIFY_DELAY_MILLIS    2000
@@ -38,18 +42,61 @@ struct ServerStats {
   uint16_t n_posted, n_post_push;
 };
 
+#if !defined(XIAO_WIO_ROOM_HISTORY) || !XIAO_WIO_ROOM_HISTORY
 void MyMesh::addPost(ClientInfo *client, const char *postData) {
   storePost(client->id, postData);
 }
+#endif
 
 void MyMesh::addSystemPost(const char *postData) {
   if (!postData || postData[0] == 0) return;
 
   MESH_DEBUG_PRINTLN("room.post: addSystemPost: %s", postData);
 
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  storePost(self_id, 0, postData, 1);
+#else
   storePost(self_id, postData);
+#endif
 }
 
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+uint64_t MyMesh::historyUptime() {
+  uint32_t now = millis(); uptime_millis += uint32_t(now - last_millis); last_millis = now; return uptime_millis;
+}
+bool MyMesh::joinHistory(ClientInfo* client, uint32_t since) {
+  // Reconcile ACL eviction by full key, never by a movable ClientInfo index.
+  playback.retainSessions([this](const uint8_t* key) { auto c = acl.getClient(key, PUB_KEY_SIZE); return c && c->last_activity; });
+  uint64_t utc = 0; bool known = history_clock.now(historyUptime(), utc);
+  room_history::Member* member = nullptr;
+  auto result = history.state() == room_history::State::Ready ?
+    history_members.login(client->id.pub_key, history.highWater(), known, utc, member) : room_history::Result::Recovery;
+  if (result == room_history::Result::Ok) result = playback.login(*member, since, _prefs.history_playback);
+  history_admin.lastError = result;
+  if (result != room_history::Result::Ok) {
+    playback.remove(client->id.pub_key);
+    // Storage/full tracking must never lock out authenticated administration.
+    return client->isAdmin();
+  }
+  client->extra.room.sync_since = member->deliveredTimestamp;
+  return true;
+}
+void MyMesh::reconcileHistorySessions() {
+  playback.retainSessions([this](const uint8_t* key) { auto c = acl.getClient(key, PUB_KEY_SIZE); return c && c->last_activity; });
+  playback.reconcile();
+  for (int i = 0; i < acl.getNumClients(); ++i) {
+    auto c = acl.getClientByIdx(i);
+    if (!playback.session(c->id.pub_key)) c->extra.room.pending_ack = 0;
+  }
+}
+room_history::Result MyMesh::storePost(const mesh::Identity& author, uint32_t senderTimestamp, const char* text, uint8_t kind) {
+  room_history::Post committed;
+  auto result = history.append(author.pub_key, senderTimestamp, text, kind, getRTCClock()->getCurrentTime(), committed, millis());
+  history_admin.lastError = result;
+  if (result == room_history::Result::Ok) { ++_num_posted; next_push = futureMillis(PUSH_NOTIFY_DELAY_MILLIS); }
+  return result;
+}
+#else
 void MyMesh::storePost(const mesh::Identity &author, const char *postData) {
   int idx = next_post_idx;
   // TODO: suggested postData format: <title>/<descrption>
@@ -65,6 +112,8 @@ void MyMesh::storePost(const mesh::Identity &author, const char *postData) {
   _num_posted++; // stats
   MESH_DEBUG_PRINTLN("room.post: next_post_idx=%d num_posted=%d push scheduled", next_post_idx, _num_posted);
 }
+
+#endif
 
 void MyMesh::pushPostToClient(ClientInfo *client, PostInfo &post) {
   MESH_DEBUG_PRINTLN("room.post: pushPostToClient text=%s", post.text);
@@ -108,6 +157,9 @@ void MyMesh::pushPostToClient(ClientInfo *client, PostInfo &post) {
 }
 
 uint8_t MyMesh::getUnsyncedCount(ClientInfo *client) {
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  return room_history::HistoryPlayback::wireCount(playback.count(client->id.pub_key));
+#else
   uint8_t count = 0;
   for (int k = 0; k < MAX_UNSYNCED_POSTS; k++) {
     if (posts[k].post_timestamp > client->extra.room.sync_since // is new post for this Client?
@@ -116,12 +168,20 @@ uint8_t MyMesh::getUnsyncedCount(ClientInfo *client) {
     }
   }
   return count;
+#endif
 }
 
 bool MyMesh::processAck(const uint8_t *data) {
   for (int i = 0; i < acl.getNumClients(); i++) {
     auto client = acl.getClientByIdx(i);
     if (client->extra.room.pending_ack && memcmp(data, &client->extra.room.pending_ack, 4) == 0) { // got an ACK from Client!
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      uint32_t ack; memcpy(&ack, data, 4);
+      auto result = playback.acknowledge(client->id.pub_key, ack);
+      if (result != room_history::Result::Ok && result != room_history::Result::Duplicate) {
+        history_admin.lastError = result; return false;
+      }
+#endif
       client->extra.room.pending_ack = 0; // clear this, so next push can happen
       client->extra.room.push_failures = 0;
       client->extra.room.sync_since = client->extra.room.push_post_timestamp; // advance Client's SINCE timestamp, to sync next post
@@ -323,6 +383,7 @@ mesh::DispatcherAction MyMesh::onRecvPacket(mesh::Packet* pkt) {
 
 void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const mesh::Identity &sender,
                             uint8_t *data, size_t len) {
+  if (len < 9) return;
   if (packet->getPayloadType() == PAYLOAD_TYPE_ANON_REQ) { // received an initial request by a possible admin
                                                            // client (unknown at this stage)
     uint32_t sender_timestamp, sender_sync_since;
@@ -342,6 +403,9 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
     }
     if (client == NULL) {
       uint8_t perm;
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      if (!room_history::authenticateLogin((char*)data + 8, false, 0, _prefs.password, _prefs.guest_password, _prefs.allow_read_only, perm)) return;
+#else
       if (strcmp((char *)&data[8], _prefs.password) == 0) { // check for valid admin password
         perm = PERM_ACL_ADMIN;
       } else {
@@ -354,15 +418,22 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
           return; // no response. Client will timeout
         }
       }
+#endif
 
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      if (auto prior = acl.getClient(sender.pub_key, PUB_KEY_SIZE)) playback.remove(prior->id.pub_key);
+#endif
       client = acl.putClient(sender, 0);  // add to known clients (if not already known)
+      if (!client) return;
       if (sender_timestamp <= client->last_timestamp) {
         MESH_DEBUG_PRINTLN("possible replay attack!");
         return;
       }
 
       MESH_DEBUG_PRINTLN("Login success!");
+#if !defined(XIAO_WIO_ROOM_HISTORY) || !XIAO_WIO_ROOM_HISTORY
       client->last_timestamp = sender_timestamp;
+#endif
       client->extra.room.sync_since = sender_sync_since;
       client->extra.room.pending_ack = 0;
       client->extra.room.push_failures = 0;
@@ -375,6 +446,14 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
     }
 
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+    // All successful auth paths, including known-key blank password, join here.
+    client->last_activity = getRTCClock()->getCurrentTime();
+    memcpy(client->shared_secret, secret, PUB_KEY_SIZE);
+    client->extra.room.pending_ack = 0; client->extra.room.push_failures = 0;
+    if (!joinHistory(client, sender_sync_since)) { client->last_activity = 0; return; }
+    if (sender_timestamp > client->last_timestamp) client->last_timestamp = sender_timestamp;
+#endif
     if (packet->isRouteFlood()) {
       client->out_path_len = OUT_PATH_UNKNOWN;  // need to rediscover out_path
     }
@@ -442,12 +521,42 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
     uint32_t sender_timestamp;
     memcpy(&sender_timestamp, data, 4); // timestamp (by sender's RTC clock - which could be wrong)
     uint8_t flags = (data[4] >> 2);        // message attempt number, and other flags
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+    if (flags == TXT_TYPE_PLAIN) {
+      if ((client->permissions & PERM_ACL_ROLE_MASK) != PERM_ACL_GUEST &&
+          !playback.session(client->id.pub_key) && !joinHistory(client, 0)) return;
+      room_history::Post committed;
+      auto result = room_history::receivePlain(history, client->id.pub_key, client->permissions, client->last_timestamp,
+        data, len, getRTCClock()->getCurrentTime(), millis(), committed, [&](uint32_t hash) {
+          if (client->out_path_len == OUT_PATH_UNKNOWN) {
+            auto ack = createAck(hash); if (ack) sendFloodReply(ack, TXT_ACK_DELAY, packet->getPathHashSize());
+          } else {
+            uint32_t d = TXT_ACK_DELAY;
+            if (getExtraAckTransmitCount() > 0) {
+              auto ack = createMultiAck(hash, 1); if (ack) sendDirect(ack, client->out_path, client->out_path_len, d);
+              d += 300;
+            }
+            auto ack = createAck(hash); if (ack) sendDirect(ack, client->out_path, client->out_path_len, d);
+          }
+        });
+      history_admin.lastError = result;
+      if (result == room_history::Result::Ok || result == room_history::Result::Duplicate) {
+        client->last_activity = getRTCClock()->getCurrentTime(); client->extra.room.push_failures = 0;
+      }
+      if (result == room_history::Result::Ok) { ++_num_posted; next_push = futureMillis(PUSH_NOTIFY_DELAY_MILLIS); }
+      return;
+    }
+#endif
 
     if (!(flags == TXT_TYPE_PLAIN || flags == TXT_TYPE_CLI_DATA)) {
       MESH_DEBUG_PRINTLN("onPeerDataRecv: unsupported command flags received: flags=%02x", (uint32_t)flags);
     } else if (sender_timestamp >= client->last_timestamp) { // prevent replay attacks, but send Acks for retries
       bool is_retry = (sender_timestamp == client->last_timestamp);
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      if (flags == TXT_TYPE_CLI_DATA) client->last_timestamp = sender_timestamp;
+#else
       client->last_timestamp = sender_timestamp;
+#endif
 
       uint32_t now = getRTCClock()->getCurrentTimeUnique();
       client->last_activity = now;
@@ -481,11 +590,15 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
           temp[5] = 0;      // no reply
           send_ack = false; // no ACK
         } else {
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+          temp[5] = 0; send_ack = false; // plain posts returned through receivePlain above
+#else
           if (!is_retry) {
             addPost(client, (const char *)&data[5]);
           }
           temp[5] = 0; // no reply (ACK is enough)
           send_ack = true;
+#endif
         }
       }
 
@@ -554,11 +667,16 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         } else {
           memcpy(&data[5], &forceSince, 4); // make sure there are zeroes in payload (for ack_hash calc below)
         }
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+        if (!playback.session(client->id.pub_key)) joinHistory(client, forceSince);
+        playback.keepAlive(client->id.pub_key, forceSince);
+#else
         if (forceSince > 0) {
           client->extra.room.sync_since = forceSince; // force-update the 'sync since'
         }
 
         client->extra.room.pending_ack = 0;
+#endif
 
         // TODO: Throttle KEEP_ALIVE requests!
         // if client sends too quickly, evict()
@@ -684,10 +802,12 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.radio_fem_rxgain = 1;
   _prefs.radio_fem_txgain = 0;
 
+#if !defined(XIAO_WIO_ROOM_HISTORY) || !XIAO_WIO_ROOM_HISTORY
   next_post_idx = 0;
+  memset(posts, 0, sizeof(posts));
+#endif
   next_client_idx = 0;
   next_push = 0;
-  memset(posts, 0, sizeof(posts));
   _num_posted = _num_post_pushes = 0;
 
   memset(default_scope.key, 0, sizeof(default_scope.key));
@@ -699,6 +819,22 @@ void MyMesh::begin(FILESYSTEM *fs) {
   // load persisted prefs
   _cli.loadPrefs(_fs);
 
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  auto recovered = history.begin(self_id.pub_key);
+  auto users = history_members.begin(self_id.pub_key);
+  if (users == room_history::Result::Ok) {
+    for (uint16_t i = 0; i < history_members.count(); ++i) {
+      const auto& m = history_members.at(i);
+      if (m.joinFloor > history.highWater() || m.delivered > history.highWater() || m.deliveredTimestamp > history.timestampFloor()) {
+        recovered = room_history::Result::Recovery; history.requireRecovery(); break;
+      }
+    }
+  }
+  if (recovered != room_history::Result::Ok || users != room_history::Result::Ok) {
+    history_admin.lastError = room_history::Result::Recovery;
+    Serial.println("ERR history recovery required; files preserved, posts/playback unavailable; admin remains available.");
+  }
+#endif
   acl.load(_fs, self_id);
   region_map.load(_fs);
 
@@ -897,9 +1033,7 @@ void MyMesh::formatPacketStatsReply(char *reply) {
 }
 
 void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply) {
-#ifdef XIAO_WIO_ROOM_DIAGNOSTICS
   char* const reply_start = reply;
-#endif
   if (region_load_active) {
     if (StrHelper::isBlank(command)) {  // empty/blank line, signal to terminate 'load' operation
       region_map = temp_map;  // copy over the temp instance as new current map
@@ -943,6 +1077,17 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     command += 3;
   }
 
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  if (!strcmp(command, "get history.stack")) {
+    snprintf(reply, 160 - size_t(reply - reply_start), "> loop stack minimum free=%lu bytes",
+      (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
+    return;
+  }
+  if (history_admin.handle(command, reply, 160 - size_t(reply - reply_start), _prefs.history_playback,
+      historyUptime(), [this]() { return _cli.savePrefs(_fs); }, history_storage.usingInternalMemory() ? "internal" : "psram")) {
+    reconcileHistorySessions(); return;
+  }
+#endif
 #ifdef XIAO_WIO_ROOM_DIAGNOSTICS
   // Read-only diagnostics. Keep correlation-prefix space inside the reply bound.
   const size_t reply_capacity = 160 - size_t(reply - reply_start);
@@ -962,6 +1107,7 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
       (unsigned long)(total >= used ? total - used : 0));
     return;
   }
+#if !defined(XIAO_WIO_ROOM_HISTORY) || !XIAO_WIO_ROOM_HISTORY
   if (!strcmp(command, "get history")) {
     unsigned count = 0;
     uint32_t oldest = 0, newest = 0;
@@ -977,6 +1123,7 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
       (unsigned long)oldest, (unsigned long)newest);
     return;
   }
+#endif
 #endif
 
   // handle ACL related commands
@@ -1019,8 +1166,13 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     if (*msg == 0) {
       snprintf(reply, MAX_POST_TEXT_LEN, "ERR empty message");
     } else {
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      auto result = storePost(self_id, 0, msg, 1);
+      snprintf(reply, 160 - size_t(reply - reply_start), "%s%s", result == room_history::Result::Ok ? "" : "ERR ", room_history::error(result));
+#else
       addSystemPost(msg);
       snprintf(reply, MAX_POST_TEXT_LEN, "OK");
+#endif
     }
   } else{
     _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands
@@ -1032,6 +1184,9 @@ bool MyMesh::saveFilter(ClientInfo* client) {
 }
 
 void MyMesh::loop() {
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  history.tick(millis()); reconcileHistorySessions();
+#endif
   mesh::Mesh::loop();
 
   if (millisHasNowPassed(next_push) && acl.getNumClients() > 0) {
@@ -1039,17 +1194,30 @@ void MyMesh::loop() {
     for (int i = 0; i < acl.getNumClients(); i++) {
       auto c = acl.getClientByIdx(i);
       if (c->extra.room.pending_ack && millisHasNowPassed(c->extra.room.ack_timeout)) {
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+        playback.timeout(c->id.pub_key);
+#endif
         c->extra.room.push_failures++;
         c->extra.room.pending_ack = 0; // reset  (TODO: keep prev expected_ack's in a list, incase they arrive LATER, after we retry)
         MESH_DEBUG_PRINTLN("pending ACK timed out: push_failures: %d", (uint32_t)c->extra.room.push_failures);
       }
     }
     // check next Round-Robin client, and sync next new post
+    next_client_idx %= acl.getNumClients();
     auto client = acl.getClientByIdx(next_client_idx);
     bool did_push = false;
     if (client->extra.room.pending_ack == 0 && client->last_activity != 0 &&
         client->extra.room.push_failures < 3) { // not already waiting for ACK, AND not evicted, AND retries not max
       MESH_DEBUG_PRINTLN("loop - checking for client %02X", (uint32_t)client->id.pub_key[0]);
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      room_history::Post committed;
+      if (playback.next(client->id.pub_key, committed, millis()) == room_history::Result::Ok) {
+        PostInfo p; memcpy(p.author.pub_key, committed.author, 32); p.post_timestamp = committed.timestamp;
+        memcpy(p.text, committed.text, sizeof(p.text)); pushPostToClient(client, p);
+        if (client->extra.room.pending_ack) playback.pending(client->id.pub_key, committed, client->extra.room.pending_ack);
+        did_push = client->extra.room.pending_ack != 0;
+      }
+#else
       uint32_t now = getRTCClock()->getCurrentTime();
       for (int k = 0, idx = next_post_idx; k < MAX_UNSYNCED_POSTS; k++) {
         auto p = &posts[idx];
@@ -1064,6 +1232,7 @@ void MyMesh::loop() {
         }
         idx = (idx + 1) % MAX_UNSYNCED_POSTS; // wrap to start of cyclic queue
       }
+#endif
     } else {
       MESH_DEBUG_PRINTLN("loop - skipping busy (or evicted) client %02X", (uint32_t)client->id.pub_key[0]);
     }

@@ -26,7 +26,7 @@ jobs:
           node-version: '22'
       - name: Test firmware and publishing tools
         run: |
-          pio test -e native -e native_kiss_modem -e native_environment_manager -e native_xiao_companion -e native_xiao_outputs_uart
+          pio test -e native -e native_kiss_modem -e native_environment_manager -e native_xiao_companion -e native_xiao_outputs_uart -e native_room_history -e native_room_history_disabled -e native_room_delivery
           python -m unittest discover -s test/publishing -v
           node --test test/flasher/*.test.mjs
 

@@ -31,6 +31,7 @@ class ConfigSerializer {
 
   public:
     bool success = true;
+    bool boundedFallback = false;
     Context(Stream* f, OP op) : _f(f), _op(op) { rd_buf[rd_len = 0] = 0; rd_mode = 0; pending = 0; }
     OP op() const { return _op; }
     Stream* file() const { return _f; }
@@ -41,6 +42,7 @@ class ConfigSerializer {
   };
 
   Context* _context = NULL;
+  bool _boundedFallback = false;
 
   void writeComma();
 
@@ -54,6 +56,7 @@ protected:
   void def(const char* key, int8_t& value);
   void def(const char* key, uint32_t& value);
   void def(const char* key, uint16_t& value);
+  void defBounded(const char* key, uint16_t& value, uint16_t minimum, uint16_t maximum, uint16_t fallback);
   void def(const char* key, uint8_t& value);
   void def(const char* key, float& value);
   void def(const char* key, double& value);
@@ -65,4 +68,5 @@ protected:
 public:
   bool loadSerial(Stream& s);
   bool saveSerial(Stream& s);
+  bool usedBoundedFallback() const { return _boundedFallback; }
 };

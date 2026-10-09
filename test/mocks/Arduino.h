@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cmath>
+#include <stdio.h>
 #include "Stream.h"
 
 inline uint32_t g_mock_millis = 0;
