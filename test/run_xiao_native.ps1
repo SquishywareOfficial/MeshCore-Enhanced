@@ -23,7 +23,7 @@ Run-Suite 'xiao_outputs' @('test/test_xiao_outputs/test_xiao_outputs.cpp')
 Run-Suite 'xiao_outputs_uart' @('test/test_xiao_outputs/test_xiao_outputs.cpp') @('-DSERIAL_TX=43','-DSERIAL_RX=44')
 Run-Suite 'environment_manager' @('test/test_environment_manager/test_environment_manager.cpp',
   'src/helpers/sensors/EnvironmentSensorManager.cpp') @('-Itest/test_environment_manager/mocks',
-  '-DENV_INCLUDE_SHT4X=1','-DESP32=1')
+  '-DENV_INCLUDE_SHT4X=1','-DESP32=1','-DENV_INCLUDE_DHT11=1')
 
 Run-Suite 'xiao_pin_claims' @('test/test_xiao_pin_claims/test_xiao_pin_claims.cpp')
 

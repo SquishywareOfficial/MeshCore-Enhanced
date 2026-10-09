@@ -15,6 +15,9 @@
 #endif
 
 class XiaoS3WIOBoard : public ESP32Board {
+#ifdef XIAO_WIO_ENVIRONMENT
+  int environment_gpio = -1; // only DHT11 claims a GPIO
+#endif
 #ifdef BATTERY_ADC_PIN
   float adc_mult = ADC_MULTIPLIER;
   bool battery_connected = false;
@@ -26,6 +29,9 @@ class XiaoS3WIOBoard : public ESP32Board {
   uint8_t outputs_on = 0;
 
   bool outputPinReserved(int pin) const {
+#ifdef XIAO_WIO_ENVIRONMENT
+    if (pin == environment_gpio) return true;
+#endif
 #ifdef BATTERY_ADC_PIN
     if (pin == battery_gpio) return true;
 #endif
@@ -115,6 +121,17 @@ class XiaoS3WIOBoard : public ESP32Board {
 public:
   XiaoS3WIOBoard() { }
 
+#ifdef XIAO_WIO_ENVIRONMENT
+  bool setEnvironmentGpio(int pin) override {
+    if (pin == -1) { environment_gpio = -1; return true; }
+    if (!mesh::outputBitForGpio(pin)) return false;
+    if (pin == environment_gpio) return true;
+    if (outputPinReserved(pin) || (outputs_mask & mesh::outputBitForGpio(pin))) return false;
+    environment_gpio = pin;
+    return true; // the sensor manager owns pinMode/read operations
+  }
+#endif
+
 #ifdef XIAO_WIO_OUTPUTS
   int getOutputMask() const override { return outputs_mask; }
   int getOutputState(int pin) const override {
@@ -177,6 +194,9 @@ public:
     if (battery_connected) return false; // disable sensing before selecting another pin
     if (pin == -1) pin = BATTERY_ADC_PIN;
     if (pin != D0 && pin != D1 && pin != D3) return false;
+#ifdef XIAO_WIO_ENVIRONMENT
+    if (pin == environment_gpio) return false;
+#endif
 #ifdef XIAO_WIO_OUTPUTS
     if (outputs_mask & mesh::outputBitForGpio(pin)) return false;
 #endif
@@ -187,6 +207,9 @@ public:
   int getBatteryGpio() const override { return battery_gpio; }
 
   bool setBatteryConnected(bool connected) override {
+#ifdef XIAO_WIO_ENVIRONMENT
+    if (connected && battery_gpio == environment_gpio) return false;
+#endif
     if (connected == battery_connected) return true;
     // Leave the pin untouched until sensing is explicitly enabled. On disable,
     // release the ADC pin back to a plain input and stop sampling it.

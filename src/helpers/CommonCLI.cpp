@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "CommonCLI.h"
 #include "EnvironmentCLI.h"
+#include "EnvironmentConfigCLI.h"
 #include "OutputCLI.h"
 #include "BatteryCLI.h"
 #include "TxtDataHelpers.h"
@@ -47,8 +48,11 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   //    fs->remove("/com_prefs");  // remove old
     }
   }
-  // Missing fields (including legacy binary preferences) keep the safe off default.
-  restoreOptionalIO(*_board, *_prefs);
+  // Old preferences keep battery off and I2C discovery unchanged. Resolve
+  // sensor claims before outputs can drive any pins during startup.
+  restoreBatterySettings(*_board, *_prefs);
+  restoreEnvironmentSettings(*_board, *_sensors, *_prefs);
+  if (_board->getOutputMask() >= 0) _prefs->outputs_mask = _board->restoreOutputs(_prefs->outputs_mask);
 }
 
 void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy prefs loader
@@ -185,6 +189,8 @@ uint8_t CommonCLI::buildAdvertData(uint8_t node_type, uint8_t* app_data) {
 }
 
 void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
+  if (handleEnvironmentConfigCommand(*_board, *_sensors, *_prefs, command, reply,
+                                    [this]() { savePrefs(); })) return;
   if (handleBatteryCommand(*_board, *_prefs, command, reply, 160,
                            [this]() { savePrefs(); })) return;
   if (handleOutputCommand(*_board, _prefs->outputs_mask, command, reply,

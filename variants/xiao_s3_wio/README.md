@@ -7,8 +7,8 @@ without sampling or initialising the ADC. No separate battery image is needed.
 
 | Role / standard target | Optional features | Command access |
 | --- | --- | --- |
-| `Xiao_S3_WIO_repeater` | Battery, SHT4x, manual outputs | USB text console or authenticated remote administrator CLI |
-| `Xiao_S3_WIO_room_server` | Same battery, SHT4x and output behaviour as repeater | USB text console or authenticated remote room administrator CLI |
+| `Xiao_S3_WIO_repeater` | Battery, selectable SHT4x/DHT11, manual outputs | USB text console or authenticated remote administrator CLI |
+| `Xiao_S3_WIO_room_server` | Same battery, SHT4x/DHT11 and output behaviour as repeater | USB text console or authenticated remote room administrator CLI |
 | `Xiao_S3_WIO_companion_radio_ble` | Battery settings and voltage reporting | Existing phone app: Settings -> Extra Tools -> Command Line, over Bluetooth |
 | `Xiao_S3_WIO_companion_radio_usb`, `Xiao_S3_WIO_companion_radio_serial`, `Xiao_S3_WIO_companion_radio_wifi` | Same companion battery support | A client's local Command Line over the corresponding framed transport |
 
@@ -178,6 +178,58 @@ at 50 ms (a shorter existing timeout is retained); errors never return cached da
 The existing environment telemetry permissions and channel assignment remain intact.
 No mobile GUI additions or periodic broadcasts are introduced.
 
+### Select an environment sensor (saved per node)
+
+The standard repeater and room server images include both SHT4x and DHT11.
+Use USB text commands or the node's authenticated remote administrator console:
+
+```text
+get environment.sensor
+set environment.sensor none
+set environment.gpio 2
+set environment.sensor dht11
+get environment.gpio
+get environment
+get temperature
+get humidity
+```
+
+Settings take effect immediately and survive reboot. `environment.sensor` accepts
+`auto`, `none`, `sht4x`, or `dht11` (lowercase). The default `auto` preserves existing
+I2C discovery/telemetry and SHT4x console readings, without accessing any DHT pin.
+`none` disables environment console readings and environmental telemetry; GPS is
+unaffected. `sht4x` selects the existing SHT4x at 0x44. `dht11` selects a DHT11 on
+the configured GPIO. Explicit selections report only the selected sensor on LPP
+channel 2, respecting existing environmental telemetry permissions. `auto` retains
+the previous I2C channel assignment. Companion builds retain battery-only commands.
+
+For a three-pin Keyes DHT11 board, connect **S to D1/GPIO2**, **VCC to 3V3** and
+**minus/GND to GND**. Follow the actual board's markings rather than assuming
+connector orientation. The module's existing pull-up must go to 3.3 V. A bare
+four-pin DHT11 uses the same `dht11` setting, but needs its data pull-up and correct
+VCC/data/NC/GND wiring. Pin count is a wiring difference, not a sensor protocol.
+
+`environment.gpio` defaults to chip GPIO2. It accepts chip GPIO1, 2, 4, 43 or 44
+when free; `default` selects GPIO2. GPIO1 is normally reserved by the battery
+selection, even with battery sensing off. Radio, I2C, buttons and active UART/GPS/
+bridge pins cannot be selected. Set the sensor to `none` before changing its GPIO.
+A disabled selection never changes a GPIO's electrical state. Enabling DHT11
+claims the pin; output configuration and battery selection cannot take it over.
+An assigned output or selected battery pin also prevents enabling DHT11 there.
+At startup, battery claims are resolved first, then DHT11, then output assignments;
+conflicting outputs are discarded and all remaining outputs start OFF. Invalid
+saved sensor settings leave the sensor disabled.
+
+DHT11 gets two seconds to settle after enabling, then samples on demand with a
+minimum two seconds between attempts. Console and telemetry share one pair;
+rapid commands may show the same reading. Missing sensors, bad checksums/timeouts,
+non-finite values and invalid humidity report a read error and add no environmental
+telemetry fields. Failed attempts replace the prior cached success. Disabling
+releases the data GPIO to INPUT. No periodic broadcasts or sensor power switching
+are added. Driver: [Adafruit DHT sensor library 1.4.7](https://github.com/adafruit/DHT-sensor-library),
+pinned in the two standard role targets. Real sensor and radio checks are separate
+from compilation and mocked tests.
+
 ## Manual digital outputs
 
 The standard `Xiao_S3_WIO_repeater` and `Xiao_S3_WIO_room_server` images support
@@ -193,7 +245,7 @@ then `output remove 2`. Success returns `OK`. Only configured pins can switch.
 Repeating configuration leaves an ON output ON without a pulse. Removal sets LOW
 before releasing to INPUT. Removing an already absent pin does not touch it.
 Assignments persist, but all restored outputs start OFF after reboot/power cycle.
-Startup resolves battery ownership first and discards conflicting output bits.
+Startup resolves battery and DHT11 ownership first and discards conflicting output bits.
 Unconfigured pins remain untouched. Switching states does not write flash.
 Commands use USB or authenticated remote administration; room guests and normal
 room posts cannot control them. Outputs are not enabled in companion builds.
@@ -219,12 +271,15 @@ and remote operation while repeating have not been performed for these additions
 
 ## Custom chatroom build identification
 
-The room target now builds `v1.17.1-sq2` (build `08 Oct 2026`). `sq2` adds read-only
-room diagnostics; the installed chatroom remains `sq1` until separately updated.
+Direct local room and repeater builds now identify as `v1.17.1-sq3-dht`
+(build `09 Oct 2026`), adding the saved environment selection and DHT11 driver.
+The room's read-only diagnostics were introduced in sq2. CI publication overrides
+the local version with its Git-based identifier; use the flasher's build metadata
+to identify a published image.
 Use `ver` through the room USB console or authenticated remote CLI to check the
 installed build. Other role version strings and protocol numbers are unchanged.
 
-In sq2, `get memory` reports internal and PSRAM heap total/free/largest blocks,
+`get memory` reports internal and PSRAM heap total/free/largest blocks,
 `get storage` reports filesystem total/used/free, and `get history` reports the
 current RAM post count/capacity/bytes and oldest/newest timestamps. Sizes are bytes.
 The filesystem report is usable capacity, not raw flash-partition size. Free bytes
@@ -275,3 +330,12 @@ passed 78 native checks and all six standard XIAO Wio firmware builds on 2026-10
 the subsequent sq2 room diagnostic build also compiled successfully. Successful
 compilation and mocked tests do not complete the physical phone, radio, sensor
 or LED checks.
+
+DHT11 verification on 2026-10-09: 91 checks passed in the Windows native
+runner, including saved environment defaults/round trips, GPIO ownership and
+startup restoration, paired console/telemetry caching, warmup, invalid reads,
+permission gates and clock wrap. Standard room/repeater firmware and companion
+BLE compatibility builds passed. Room and repeater local application images
+embed v1.17.1-sq3-dht. The chatroom partition binary is unchanged from the
+previous application update. Physical USB DHT11 readings and saved settings across reboot were verified
+on the chatroom on 2026-10-09. Remote phone/mesh telemetry remains unverified. Run PlatformIO builds sequentially in this Windows checkout.

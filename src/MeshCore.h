@@ -54,6 +54,8 @@ public:
   virtual int getBatteryConnected() const { return -1; } // -1 = unsupported
   virtual bool setBatteryGpio(int pin) { return false; } // -1 selects board default
   virtual int getBatteryGpio() const { return -1; } // -1 = unsupported
+  // Claim/release a digital environment sensor's pin, without electrical access.
+  virtual bool setEnvironmentGpio(int pin) { return false; } // -1 releases claim
   // Optional manual outputs. Assignment persistence belongs to CommonCLI;
   // electrical ownership and startup safety belong to the board.
   virtual int getOutputMask() const { return -1; }

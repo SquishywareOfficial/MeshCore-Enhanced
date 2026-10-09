@@ -65,6 +65,8 @@ public:
   uint8_t battery_connected = 0; // optional external divider; off on existing/blank nodes
   uint8_t outputs_mask = 0; // assignments only; GPIO states are never persisted
   int8_t battery_gpio = -1; // board default when missing from older preferences
+  uint8_t environment_sensor = 0; // Auto: retain I2C behaviour; no DHT pin access
+  int8_t environment_gpio = 2; // D1 on XIAO S3 Wio
   char owner_info[120];
   uint8_t rx_boosted_gain = 0; // power settings
   uint8_t radio_fem_rxgain = 0; // LoRa FEM RX gain setting
@@ -139,6 +141,8 @@ private:
       def("batt_connected", _parent->battery_connected);
       def("batt_gpio", _parent->battery_gpio);
       def("outputs_mask", _parent->outputs_mask);
+      def("env_sensor", _parent->environment_sensor);
+      def("env_gpio", _parent->environment_gpio);
       def("pwr_sav_en", _parent->powersaving_enabled);
     }
   public:

@@ -2,11 +2,15 @@
 #include <stdint.h>
 #include <math.h>
 
-enum class EnvironmentStatus { Success, Unsupported, NotDetected, ReadFailed };
+enum class EnvironmentStatus { Success, Unsupported, NotDetected, ReadFailed, Disabled, WarmingUp };
+// Stored values are stable; Auto preserves existing I2C discovery on upgrades.
+enum class EnvironmentSensor : uint8_t { Auto = 0, None = 1, Sht4x = 2, Dht11 = 3 };
 struct EnvironmentReading {
   EnvironmentStatus status = EnvironmentStatus::Unsupported;
   float temperature = 0;
   float humidity = 0;
+  const char* sensor = "SHT4x@0x44";
+  int gpio = -1;
 };
 
 // Shared console/telemetry sampling path. No cache, heaters or retries.

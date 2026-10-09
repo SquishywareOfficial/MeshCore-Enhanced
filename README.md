@@ -8,11 +8,10 @@ peripherals for the original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit:
 
 - Repeater, room server and companion: saved battery sensing enable/disable,
   selectable ADC GPIO and divider calibration, using existing battery reporting.
-- Repeater and room server: fresh SHT4x temperature/humidity readings and
+- Repeater and room server: selectable SHT4x or DHT11 temperature/humidity readings and
   configurable digital outputs through USB or authenticated remote administration.
-- Room server `v1.17.1-sq2`: read-only memory, filesystem and history diagnostics.
-  This prepared build has not yet been verified on the device; the room cache
-  remains 32 messages in RAM. Larger persistent history is planned separately.
+- Room server: read-only memory, filesystem and history diagnostics. The room
+  cache remains 32 messages in RAM. Larger persistent history is planned separately.
 
 See the [wiring, commands and build guide](variants/xiao_s3_wio/README.md) for
 setup, software verification and remaining hardware checks. Build the appropriate

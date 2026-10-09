@@ -687,6 +687,17 @@ bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, Cayen
   }
 
   if (requester_permissions & TELEM_PERM_ENVIRONMENT) {
+#if ENV_INCLUDE_DHT11
+    if (environment_sensor == EnvironmentSensor::None) return true;
+    if (environment_sensor != EnvironmentSensor::Auto) {
+      const auto reading = readEnvironment();
+      if (reading.status == EnvironmentStatus::Success) {
+        telemetry.addTemperature(next_available_channel, reading.temperature);
+        telemetry.addRelativeHumidity(next_available_channel, reading.humidity);
+      }
+      return true;
+    }
+#endif
     for (int i = 0; i < _active_sensor_count; i++) {
       _active_sensors[i].query(next_available_channel, _active_sensors[i].sub_channel, telemetry);
       next_available_channel++;
@@ -965,9 +976,57 @@ void EnvironmentSensorManager::loop() {
 #endif // ENV_INCLUDE_GPS || ENV_INCLUDE_BME680_BSEC
 
 EnvironmentReading EnvironmentSensorManager::readEnvironment() {
+#if ENV_INCLUDE_DHT11
+  if (environment_sensor == EnvironmentSensor::None) {
+    EnvironmentReading reading;
+    reading.status = EnvironmentStatus::Disabled;
+    return reading;
+  }
+  if (environment_sensor == EnvironmentSensor::Dht11) return readDht11();
+#endif
 #if ENV_INCLUDE_SHT4X && TELEM_SHT4X_ADDRESS == 0x44
   return read_sht4x();
 #else
   return {};
 #endif
 }
+
+#if ENV_INCLUDE_DHT11
+bool EnvironmentSensorManager::configureEnvironment(EnvironmentSensor sensor, int gpio) {
+  if (static_cast<unsigned>(sensor) > static_cast<unsigned>(EnvironmentSensor::Dht11) ||
+      gpio < 0 || gpio > 127) return false;
+  if (sensor == environment_sensor && gpio == environment_gpio) return true;
+  if (environment_sensor == EnvironmentSensor::Dht11) pinMode(environment_gpio, INPUT);
+  environment_sensor = sensor;
+  environment_gpio = gpio;
+  dht_reading = {};
+  if (sensor == EnvironmentSensor::Dht11) {
+    dht = DHT(gpio, DHT11);
+    dht.begin();
+    dht_last_attempt = millis();
+    dht_reading.status = EnvironmentStatus::WarmingUp;
+  }
+  return true;
+}
+
+EnvironmentReading EnvironmentSensorManager::readDht11() {
+  // Share a complete pair (including failures) with console and telemetry.
+  // Never retry faster than the driver's two-second minimum, including startup.
+  const uint32_t started = millis();
+  if (uint32_t(started - dht_last_attempt) < 2000) return dht_reading;
+  dht_last_attempt = started;
+  dht_reading = {};
+  dht_reading.sensor = "DHT11";
+  dht_reading.gpio = environment_gpio;
+  dht_reading.status = EnvironmentStatus::ReadFailed;
+  const float temperature = dht.readTemperature();
+  const float humidity = dht.readHumidity(); // same packet; do not force a second read
+  if (uint32_t(millis() - started) <= 250 && isfinite(temperature) &&
+      isfinite(humidity) && humidity >= 0 && humidity <= 100) {
+    dht_reading.status = EnvironmentStatus::Success;
+    dht_reading.temperature = temperature;
+    dht_reading.humidity = humidity;
+  }
+  return dht_reading;
+}
+#endif

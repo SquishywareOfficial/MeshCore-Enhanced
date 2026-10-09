@@ -19,6 +19,9 @@ public:
   virtual bool begin() { return false; }
   virtual bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) { return false; }
   virtual EnvironmentReading readEnvironment() { return {}; }
+  virtual int getEnvironmentSensor() const { return -1; } // unsupported
+  virtual int getEnvironmentGpio() const { return -1; }
+  virtual bool configureEnvironment(EnvironmentSensor sensor, int gpio) { return false; }
   virtual void loop() { }
   virtual int getNumSettings() const { return 0; }
   virtual const char* getSettingName(int i) const { return NULL; }

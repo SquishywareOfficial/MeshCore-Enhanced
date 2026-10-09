@@ -254,6 +254,22 @@ TEST(NodePrefs, ExistingPreferencesKeepBatteryDisconnected) {
     EXPECT_EQ(-1, loaded.battery_gpio);
     EXPECT_FLOAT_EQ(2.05f, loaded.adc_multiplier);
     EXPECT_STREQ("Existing repeater", loaded.node_name);
+    EXPECT_EQ(0, loaded.environment_sensor);
+    EXPECT_EQ(2, loaded.environment_gpio);
+}
+
+TEST(NodePrefs, EnvironmentSelectionRoundTrip) {
+    NodePrefs saved;
+    saved.environment_sensor = 3;
+    saved.environment_gpio = 44;
+    MockPrintStream output;
+    ASSERT_TRUE(saved.saveSerial(output));
+    std::string text(reinterpret_cast<const char*>(output.getBytes()), output.getLength());
+    MockInputStream input(text.c_str());
+    NodePrefs loaded;
+    ASSERT_TRUE(loaded.loadSerial(input));
+    EXPECT_EQ(3, loaded.environment_sensor);
+    EXPECT_EQ(44, loaded.environment_gpio);
 }
 
 int main(int argc, char** argv) {
