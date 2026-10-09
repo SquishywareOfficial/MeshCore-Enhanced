@@ -1,6 +1,7 @@
 ## MeshCore Enhanced (Squishyware)
 
 [USB flasher and firmware downloads](https://squishywareofficial.github.io/MeshCore-Enhanced/)
+ | [Versioned Releases](https://github.com/SquishywareOfficial/MeshCore-Enhanced/releases)
  | [XIAO build status](https://github.com/SquishywareOfficial/MeshCore-Enhanced/actions/workflows/build-xiao-wio.yml)
 
 This fork of [MeshCore](https://github.com/meshcore-dev/MeshCore) adds optional
@@ -17,6 +18,31 @@ See the [wiring, commands and build guide](variants/xiao_s3_wio/README.md) for
 setup, software verification and remaining hardware checks. Build the appropriate
 `Xiao_S3_WIO_*` target for these additions; the upstream web flasher distributes
 upstream firmware.
+
+The USB flasher updates automatically after successful tests and all six builds
+on `main`. Leave **Erase data** unchecked to preserve settings on compatible
+devices. [Versioned Releases](https://github.com/SquishywareOfficial/MeshCore-Enhanced/releases)
+provide lasting downloads for repeater, chatroom and Bluetooth, USB, UART and Wi-Fi
+companion builds. Each ZIP includes application and full installation images,
+partition metadata, checksums and flashing instructions. The flasher may offer
+a newer build than the latest Release; a version tag does not change the flasher.
+
+To publish a Release, add a section headed `## v<upstream-version>-sq<number>`
+to [RELEASE_NOTES.md](RELEASE_NOTES.md), commit it to `main`, and wait for the XIAO
+workflow to succeed. Then tag that commit and push the tag, for example:
+
+```sh
+git tag -a v1.17.1-sq3 <tested-main-commit> -m "MeshCore Enhanced v1.17.1-sq3"
+git push origin v1.17.1-sq3
+```
+
+The tag workflow reruns tests and all six builds, verifies matching artifacts and
+requires the tagged commit to belong to `main` before publishing a public Release.
+Missing release notes or any failed build prevent publication. Ordinary `main`
+pushes do not create Releases. Stable Enhanced tags use `v1.17.1-sq3`-style names;
+the inherited upstream role-specific release tags remain separate. Firmware keeps
+its compact version plus commit identifier (within the companion protocol's
+19-character limit); each Release records the tag and exact source commit.
 
 ## About MeshCore
 

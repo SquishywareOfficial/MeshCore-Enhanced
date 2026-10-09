@@ -1,14 +1,16 @@
-"""Package XIAO Wio builds and assemble a self-contained, verified Pages site."""
+"""Package XIAO Wio builds, a verified Pages site and versioned release downloads."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
 import sys
+import zipfile
 
 TARGETS = {
     'Xiao_S3_WIO_repeater': ('repeater', 'Repeater'),
@@ -82,7 +84,7 @@ def package(target, sha, output):
     write_json(output / 'build.json', metadata)
 
 
-def assemble(artifacts, sha, output):
+def verified_bundles(artifacts, sha):
     bundles = {}
     for path in artifacts.rglob('build.json'):
         metadata = json.loads(path.read_text(encoding='utf-8'))
@@ -104,6 +106,11 @@ def assemble(artifacts, sha, output):
         raise ValueError('All six successful builds are required before publishing')
     if len({json.dumps(meta['partitions'], sort_keys=True) for _, meta in bundles.values()}) != 1:
         raise ValueError('Inconsistent partition layouts')
+    return bundles
+
+
+def assemble(artifacts, sha, output):
+    bundles = verified_bundles(artifacts, sha)
     shutil.copytree(Path(__file__).resolve().parent.parent / 'web/flasher', output, dirs_exist_ok=True)
     catalog = {'commit': sha, 'built_at': datetime.now(timezone.utc).isoformat(), 'builds': []}
     for target, (slug, title) in TARGETS.items():
@@ -128,6 +135,97 @@ def assemble(artifacts, sha, output):
     (output / '.nojekyll').touch()
 
 
+def release_notes(notes, tag):
+    if not re.fullmatch(r'v\d+\.\d+\.\d+-sq[1-9]\d*', tag):
+        raise ValueError('Expected a stable Enhanced tag such as v1.17.1-sq3')
+    sections = re.split(r'^## ([^\r\n]+)\r?$', notes.read_text(encoding='utf-8'), flags=re.MULTILINE)
+    matches = [sections[i + 1].strip() for i in range(1, len(sections), 2)
+               if sections[i] == tag]
+    if len(matches) != 1 or not matches[0]:
+        raise ValueError('Exactly one non-empty release notes section is required for ' + tag)
+    return matches[0]
+
+
+def release(artifacts, sha, tag, notes, output):
+    body = release_notes(notes, tag)
+    bundles = verified_bundles(artifacts, sha)
+    if output.exists() and any(output.iterdir()):
+        raise ValueError('Release output directory must be empty')
+    output.mkdir(parents=True, exist_ok=True)
+    catalog = {'tag': tag, 'commit': sha, 'builds': []}
+    for target, (_, title) in TARGETS.items():
+        source, metadata = bundles[target]
+        name = f'{target}-{tag}.zip'
+        info = {'tag': tag, 'commit': sha, 'target': target,
+                'firmware_version': metadata['version']}
+        readme = f'''# MeshCore Enhanced {tag} - {title}
+
+Hardware: original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit, 8 MB flash.
+Build target: {target}
+Source commit: {sha}
+Firmware-reported version: {metadata['version']}
+
+Contents:
+- firmware.bin: application only.
+- firmware-merged.bin: full installation image, written at offset 0x0.
+- partitions.bin: partition table for inspection and compatibility checks.
+- build.json: firmware version, commit, partition layout and binary SHA-256 values.
+- release.json: release tag and source commit.
+- SHA256SUMS.txt: checksums of all other files in this ZIP.
+
+## Updating while preserving settings
+
+The USB installer at https://squishywareofficial.github.io/MeshCore-Enhanced/
+installs the latest successful main build, which may be newer than this Release.
+Leave Erase data unchecked to preserve settings on a compatible installation.
+
+To install THIS archived version while preserving settings, use firmware.bin
+with a tool that can inspect the existing partition table and OTA boot state.
+Write only the active application partition (app0 OR app1). Do not assume that
+0x10000 is the active slot. Do not erase flash or write partitions.bin, boot
+metadata, or firmware-merged.bin when preserving data. If the existing layout or
+active slot cannot be verified, stop and use the USB installer instead.
+
+## Fresh installation (erases settings and identity)
+
+Only for an intentional fresh installation, using Python and esptool:
+
+python -m pip install esptool
+python -m esptool --chip esp32s3 --port <PORT> erase-flash
+python -m esptool --chip esp32s3 --port <PORT> write-flash 0x0 firmware-merged.bin
+
+Replace <PORT> with the device port, such as COM26 or /dev/ttyACM0. Erasing removes
+the device identity/key, passwords, contacts and configuration. Reconnect without
+holding BOOT after flashing. Never use these fresh-install commands for a
+data-preserving update.
+'''
+        files = {filename: (source / filename).read_bytes() for filename in
+                 ('firmware.bin', 'firmware-merged.bin', 'partitions.bin', 'build.json')}
+        files['release.json'] = (json.dumps(info, indent=2) + '\n').encode()
+        files['README.md'] = readme.encode()
+        files['SHA256SUMS.txt'] = ''.join(
+            f'{hashlib.sha256(data).hexdigest()}  {filename}\n'
+            for filename, data in files.items()).encode()
+        with zipfile.ZipFile(output / name, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            for filename, data in files.items():
+                archive.writestr(filename, data)
+        catalog['builds'].append({**info, 'file': name, 'sha256': digest(output / name)})
+    write_json(output / 'release.json', catalog)
+    (output / 'SHA256SUMS.txt').write_text(''.join(
+        f"{entry['sha256']}  {entry['file']}\n" for entry in catalog['builds']) +
+        f"{digest(output / 'release.json')}  release.json\n", encoding='utf-8')
+    (output / 'release-notes.md').write_text(
+        body + f'\n\nSource commit: `{sha}`.\n\n'
+        'Download the ZIP for your device role. Each ZIP contains the application, '
+        'full installation image, partition table, metadata and flashing instructions. '
+        '`SHA256SUMS.txt` verifies the six ZIPs and `release.json`.\n\n'
+        'The [USB flasher](https://squishywareofficial.github.io/MeshCore-Enhanced/) '
+        'continues to follow `main` and may offer a newer build than this Release. '
+        'Leave **Erase data** unchecked to preserve settings on compatible devices. '
+        'The archived full installation image is for fresh installations; read the '
+        'included instructions before using it.\n', encoding='utf-8')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -139,8 +237,16 @@ if __name__ == '__main__':
     site.add_argument('--artifacts', type=Path, required=True)
     site.add_argument('--sha', required=True)
     site.add_argument('--output', type=Path, required=True)
+    rel = commands.add_parser('release')
+    rel.add_argument('--artifacts', type=Path, required=True)
+    rel.add_argument('--sha', required=True)
+    rel.add_argument('--tag', required=True)
+    rel.add_argument('--notes', type=Path, required=True)
+    rel.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'package':
         package(args.target, args.sha, args.output)
-    else:
+    elif args.command == 'site':
         assemble(args.artifacts, args.sha, args.output)
+    else:
+        release(args.artifacts, args.sha, args.tag, args.notes, args.output)
