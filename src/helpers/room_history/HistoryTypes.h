@@ -8,7 +8,7 @@ constexpr uint16_t Capacity = 2000, DefaultPlayback = 100, MemberCapacity = 256;
 constexpr size_t ArchiveBudget = 512 * 1024, MemberBudget = 128 * 1024;
 constexpr size_t RecordBytes = 224, HeaderBytes = 64, TextBytes = 151;
 constexpr uint16_t SegmentSlots = 64, MaxSegments = 34;
-enum class Result : uint8_t { Ok, Duplicate, Invalid, Conflict, Io, Full, Recovery, NotFound, Ambiguous, ClockUnset };
+enum class Result : uint8_t { Ok, Duplicate, Invalid, Conflict, Io, Full, Recovery, NotFound, Ambiguous, ClockUnset, Busy };
 enum class State : uint8_t { Unopened, Ready, Recovery };
 struct Post {
   uint64_t sequence = 0;
@@ -44,6 +44,7 @@ inline const char* error(Result r) {
     case Result::NotFound: return "not found";
     case Result::Ambiguous: return "ambiguous key";
     case Result::ClockUnset: return "clock not set";
+    case Result::Busy: return "delivery busy";
   }
   return "unknown";
 }

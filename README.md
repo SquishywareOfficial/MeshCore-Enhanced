@@ -11,9 +11,15 @@ peripherals for the original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit:
   selectable ADC GPIO and divider calibration, using existing battery reporting.
 - Repeater and room server: selectable SHT4x or DHT11 temperature/humidity readings and
   configurable digital outputs through USB or authenticated remote administration.
-- Room server: persistent history of the newest 2,000 posts, configurable
-  catch-up (1-2,000; default 100), saved member delivery progress, and manual
-  member cleanup. New users start fresh; returning users catch up on missing posts.
+- Repeater and room server: one optional saved Wi-Fi network for brief UTC clock
+  sync, with three bounded attempts and Wi-Fi off between them. Rooms can optionally
+  announce the outcome as `[ROOM]`. See the [clock sync guide](docs/wifi_time.md).
+- Room server: separately configurable saved history (1-2,000; default 2,000)
+  and catch-up (1-2,000; default 100), saved member progress, administrator replay
+  of older ranges using aliases/public keys, readable USB logs and member cleanup. New users start fresh; returning users catch up on missing posts.
+- Room server: a USB bot interface for a connected Pi/computer, with paged post
+  reads and retry-safe replies; a Python client saves its cursor and reply outbox.
+  No extra companion radio is required. See the [USB bot guide](docs/room_bot.md).
 - XIAO companions: signed room-message queue backpressure and retry deduplication.
   Room memory/filesystem/history diagnostics remain available.
 

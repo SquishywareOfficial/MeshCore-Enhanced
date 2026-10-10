@@ -72,10 +72,13 @@ TEST(HistoryPreferences, ActualRoomSerializerLegacyMissingAndBoundaryValues) {
   NodePrefs prefs; PrefStream old("{name:\"Existing room\",room:{rd_only:1},power:{batt_connected:1},radio:{freq:917.375}} ");
   ASSERT_TRUE(prefs.loadSerial(old)); EXPECT_EQ(100, prefs.history_playback);
   EXPECT_EQ(1, prefs.allow_read_only); EXPECT_EQ(1, prefs.battery_connected);
+  EXPECT_EQ(2000, prefs.history_amount); EXPECT_EQ(0u, prefs.history_retention_floor);
   for (uint16_t value : {1, 100, 2000}) {
-    prefs.history_playback = value; PrefStream out; ASSERT_TRUE(prefs.saveSerial(out));
+    prefs.history_playback = value; prefs.history_amount = value; prefs.history_retention_floor = 1700000000;
+    PrefStream out; ASSERT_TRUE(prefs.saveSerial(out));
     NodePrefs restored; out.position = 0; ASSERT_TRUE(restored.loadSerial(out));
-    EXPECT_EQ(value, restored.history_playback); EXPECT_STREQ("Existing room", restored.node_name);
+    EXPECT_EQ(value, restored.history_playback); EXPECT_EQ(value, restored.history_amount);
+    EXPECT_EQ(1700000000u, restored.history_retention_floor); EXPECT_STREQ("Existing room", restored.node_name);
     EXPECT_EQ(1, restored.allow_read_only); EXPECT_EQ(1, restored.battery_connected);
     EXPECT_FLOAT_EQ(917.375f, restored.freq);
   }
@@ -85,6 +88,9 @@ TEST(HistoryPreferences, InvalidRestoredValuesDoNotWrapIntoValidRange) {
     NodePrefs prefs; std::string json = std::string("{room:{hist_playback:") + value + "}}";
     PrefStream input(json.c_str()); ASSERT_TRUE(prefs.loadSerial(input)); EXPECT_EQ(100, prefs.history_playback) << value;
     EXPECT_TRUE(prefs.usedBoundedFallback());
+    NodePrefs archive; std::string archiveJson = std::string("{room:{hist_amount:") + value + "}}";
+    PrefStream archiveInput(archiveJson.c_str()); ASSERT_TRUE(archive.loadSerial(archiveInput));
+    EXPECT_EQ(2000, archive.history_amount); EXPECT_TRUE(archive.usedBoundedFallback());
   }
   NodePrefs prefs; PrefStream damaged("{room:{hist_playback:2000}"); EXPECT_FALSE(prefs.loadSerial(damaged));
 }
@@ -489,6 +495,11 @@ TEST_F(PlaybackFixture, PrivateRoomHistoryNeverGrantsAuthAndCommandsLookingLikeP
   strcpy((char*)data + 5, "history.users.purge all"); Post p;
   ASSERT_EQ(Result::Ok, receivePlain(history, user, 2, replay, data, 5 + strlen((char*)data + 5), 100, 0, p, [](uint32_t){}));
   EXPECT_EQ(1, members.count()); EXPECT_STREQ("history.users.purge all", p.text);
+  for (uint8_t permission : {2, 3}) {
+    ++timestamp; memcpy(data, &timestamp, 4); strcpy((char*)data + 5, "/chat replay Falcz 500 200");
+    ASSERT_EQ(Result::Ok, receivePlain(history, user, permission, replay, data, 5 + strlen((char*)data + 5), 100, 0, p, [](uint32_t){}));
+    EXPECT_STREQ("/chat replay Falcz 500 200", p.text); EXPECT_EQ(1, members.count());
+  }
   uint8_t cliFlag = 2; data[4] = cliFlag << 2;
   EXPECT_EQ(Result::Invalid, receivePlain(history, user, 2, replay, data, 30, 100, 0, p, [](uint32_t){}));
 }

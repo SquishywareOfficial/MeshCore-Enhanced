@@ -26,8 +26,9 @@ Each download includes the application image, complete installation image,
 partition table and `build.json` with its commit, version and SHA-256 checksums.
 CI version strings are `v1.17.1-sq-<short commit>` and fit the companion protocol's
 19-character version field. The build date is refreshed by upstream `build.sh`.
-Direct local room and companion builds identify this history work as
-`v1.17.1-sq4-hist`; this local label is not a published Release tag. On-air protocol
+Direct local XIAO builds identify as `v1.17.1-sq7-replay`, including the companion
+receive change required for older backfill. These local labels are not published
+Release tags. On-air protocol
 versions and device settings are not changed by the publishing workflow.
 
 ## Install or update in the browser
@@ -96,9 +97,13 @@ custom images. Local `TODO*` notes and device backups are excluded from publicat
 
 ## Persistent room history
 
-The standard XIAO room target retains the newest 2,000 posts in its existing
-SPIFFS partition. Catch-up defaults to the newest 100 missing eligible posts;
-`set history.playback 2000` increases it for future login sessions. Saved user
+The standard XIAO room target retains up to 2,000 posts in its existing
+SPIFFS partition. `chat_HistoryAmount` controls saved retention (default 2,000),
+while `chat_ReplayAmount` controls catch-up (default 100). Existing saved replay
+values are preserved. Administrators can replay older offset ranges to a logged-in
+user using saved aliases or public keys, or read bounded USB log pages.
+SQ7 writes v2 reservation controls; rolling back to SQ6 requires the matching
+pre-upgrade filesystem backup. Saved user
 progress survives room restarts. New or manually forgotten users start fresh.
 See [room history commands, recovery and update limits](room_history.md).
 

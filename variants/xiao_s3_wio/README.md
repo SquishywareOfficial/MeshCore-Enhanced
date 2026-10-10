@@ -342,9 +342,10 @@ on the chatroom on 2026-10-09. Remote phone/mesh telemetry remains unverified. R
 
 ## Persistent room history
 
-The standard `Xiao_S3_WIO_room_server` image now stores the newest 2,000 posts
-and member delivery progress in the existing SPIFFS partition. Default catch-up
-is the newest 100 missing eligible posts, configurable from 1 to 2,000. This
+The standard `Xiao_S3_WIO_room_server` image saves up to 2,000 posts and member
+progress in the existing SPIFFS partition. `chat_HistoryAmount` controls retention
+(default 2,000), separately from `chat_ReplayAmount` (default 100); both are
+configurable from 1 to 2,000. Existing saved playback values are preserved. This
 uses the same image whether optional batteries/sensors/outputs are installed.
 
 Use the room's USB console or authenticated remote administrator CLI:
@@ -352,8 +353,15 @@ Use the room's USB console or authenticated remote administrator CLI:
 ```text
 get history
 get history.storage
-get history.playback
-set history.playback 2000
+get chat_ReplayAmount
+set chat_ReplayAmount 200
+get chat_HistoryAmount
+set chat_HistoryAmount 2000
+chat users
+chat user.alias <public-key> Falcz
+/chat replay Falcz 500 200
+chat replay.status Falcz
+chat history 0 8
 history.users.list
 get history.clock
 ```
@@ -362,3 +370,9 @@ The four standard XIAO companion builds include room queue backpressure and
 retry deduplication; other boards keep their existing behavior. See the
 [complete history guide](../../docs/room_history.md) for fresh-join rules,
 member purges, clock setup, safe upgrades, durability and acceptance limits.
+
+## Optional Wi-Fi clock sync
+
+Standard repeater and room builds support one saved network for brief UTC NTP
+sync. It is disabled on existing and blank nodes. See the
+[Wi-Fi clock guide](../../docs/wifi_time.md) for commands, timing and verification limits.

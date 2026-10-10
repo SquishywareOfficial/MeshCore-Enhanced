@@ -6,6 +6,42 @@ Commit the notes to `main` and wait for the XIAO workflow to pass before tagging
 
 ## Unreleased
 
+- SQ7 XIAO room: independently saved `chat_ReplayAmount` (default 100, existing
+  values preserved) and `chat_HistoryAmount` (default 2,000), both bounded 1-2,000.
+  Reducing retention expires old posts permanently; enlarging it cannot resurrect
+  partial-segment records. New firmware reads v1 journal controls and writes v2;
+  rollback to SQ6 requires restoring a matching pre-upgrade filesystem backup.
+- Administrator/USB-only targeted replay: `/chat replay USER 500 200` queues the
+  inclusive 301-post range oldest first, preserving authors/IDs/timestamps and
+  normal saved delivery progress. Saved aliases, full keys/unique prefixes,
+  replay status/cancellation and bounded readable USB log pages are included.
+- SQ7 enhanced companions accept authenticated older room frames without rewinding
+  normal sync progress, with existing queue backpressure and immediate retry
+  deduplication. Updated companions are needed for backfill from SQ4 history builds.
+  Native checks exercise migration, rotation, alias faults, ACK independence and
+  a complete 301-post replay through the actual companion receive path.
+
+- XIAO repeater and room: optional one-profile Wi-Fi UTC time sync at startup
+  and configurable intervals, write-only password commands, bounded attempts
+  and OTA priority. Fresh NTP also establishes the room history civil clock.
+  `clock_SyncMode` selects `startup` (default) or `repeat` with saved
+  `clock_ResyncRepeatHours` (default 24, range 1-168); prior schedules are preserved.
+  `clock_SyncClockNow` queues a manual sync (alias of `wifi.sync`), respecting
+  the enabled profile, retry budget and low-battery guard. `-Force` or the
+  `clock_SyncClockNowForced` alias bypasses battery checks for that cycle only.
+  Each cycle allows three attempts with five-second Wi-Fi-off waits. Saved
+  `clock_announce` (default off, room only) posts one final `[ROOM]` result under
+  the room identity through normal history and encrypted delivery.
+
+- Enhanced XIAO room USB bot API: bounded post reads, full authors/sequence IDs,
+  explicit retention gaps and retry-safe room-authored replies. No additional
+  companion radio or radio/phone protocol changes required. XIAO USB replies
+  explicitly terminate hardware USB packets, with checked TX/RX buffers and
+  a short controller yield to keep rapid history pages complete.
+- Python monitor, sample `/bot ping`, `/bot help`, `/bot about` commands and
+  custom-handler hook with SQLite
+  progress/outbox, identity binding, reply pacing and reconnect recovery.
+
 - Standard XIAO room server: newest 2,000 posts retained in flash, catch-up
   configurable from 1 to 2,000 (default 100), chronological playback and saved
   delivery progress for returning full public-key identities.

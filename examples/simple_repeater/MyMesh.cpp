@@ -1286,6 +1286,9 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
 }
 
 void MyMesh::loop() {
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  _cli.loopWifiTime();
+#endif
 #ifdef WITH_BRIDGE
   bridge.loop();
 #endif

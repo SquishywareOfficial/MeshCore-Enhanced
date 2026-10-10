@@ -13,6 +13,9 @@
   #include <helpers/nrf52/EthernetCLI.h>
 #endif
 
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+static wifi_time::ConsoleLine wifi_console_line;
+#endif
 StdRNG fast_rng;
 SimpleMeshTables tables;
 
@@ -124,6 +127,19 @@ void setup() {
 
 void loop() {
   // Handle Serial CLI
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  while (Serial.available()) {
+    auto status = wifi_console_line.feed(char(Serial.read()));
+    if (status == wifi_time::ConsoleLine::Incomplete) continue;
+    if (status == wifi_time::ConsoleLine::Rejected) Serial.println("ERR command too long or invalid");
+    else {
+      char reply[160] = {};
+      the_mesh.handleCommand(0, wifi_console_line.text(), reply);
+      if (reply[0]) { Serial.print("  -> "); Serial.println(reply); }
+    }
+    wifi_console_line.reset(); break;
+  }
+#else
   int len = strlen(command);
   while (Serial.available() && len < sizeof(command)-1) {
     char c = Serial.read();
@@ -156,6 +172,7 @@ void loop() {
 
     command[0] = 0;  // reset command buffer
   }
+#endif
 
 #ifdef ETHERNET_ENABLED
   ethernet_loop_maintain();

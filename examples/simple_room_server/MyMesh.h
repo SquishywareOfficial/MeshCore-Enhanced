@@ -28,6 +28,7 @@
 #include <helpers/room_history/SpiffsHistoryStorage.h>
 #include <helpers/room_history/HistoryPlayback.h>
 #include <helpers/room_history/HistoryAdmin.h>
+#include <helpers/room_history/HistoryChatAdmin.h>
 #endif
 
 /* ------------------------------ Config -------------------------------- */
@@ -116,12 +117,14 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   room_history::RoomHistory history{history_storage};
   room_history::HistoryMembers history_members{history_storage};
   room_history::HistoryClock history_clock;
+  room_history::HistoryAliases history_aliases{history_storage};
   room_history::HistoryPlayback playback{history, history_members};
   room_history::HistoryAdmin history_admin{history, history_members, history_clock};
+  room_history::HistoryChatAdmin history_chat_admin{history_members, history_aliases, playback};
   uint64_t historyUptime();
   bool joinHistory(ClientInfo*, uint32_t since);
   void reconcileHistorySessions();
-  room_history::Result storePost(const mesh::Identity&, uint32_t senderTimestamp, const char*, uint8_t kind);
+  room_history::Result storePost(const mesh::Identity&, uint32_t senderTimestamp, const char*, uint8_t kind, room_history::Post* output = nullptr);
 #else
   int next_post_idx;
   PostInfo posts[MAX_UNSYNCED_POSTS];   // cyclic queue
@@ -195,10 +198,17 @@ protected:
   void sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uint8_t path_hash_size);
 
 public:
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  bool handleUsbBotCommand(const char* command, Stream& output);
+#endif
   MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables);
 
   void begin(FILESYSTEM* fs);
   void addSystemPost(const char* postData);
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  bool supportsClockAnnouncements() override { return true; }
+  void announceClockSync(const wifi_time::Completion& result) override;
+#endif
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
   void onClockSet(uint32_t epoch) override { history_clock.set(epoch, historyUptime()); }
 #endif

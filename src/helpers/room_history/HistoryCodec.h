@@ -8,7 +8,8 @@ bool encodePost(const Post&, uint8_t out[RecordBytes]);
 bool decodePost(const uint8_t in[RecordBytes], Post&);
 void encodeSegment(uint8_t out[HeaderBytes], const uint8_t key[32], uint32_t generation, uint64_t first);
 bool decodeSegment(const uint8_t in[HeaderBytes], const uint8_t key[32], uint32_t generation, uint64_t& first);
-struct Control { uint64_t revision = 0, sequence = 0; uint32_t timestamp = 0; };
-void encodeControl(uint8_t out[HeaderBytes], const uint8_t key[32], const Control&);
-bool decodeControl(const uint8_t in[HeaderBytes], const uint8_t key[32], Control&);
+constexpr size_t ControlBytes = 80; // v2; still read legacy 64-byte reservations
+struct Control { uint64_t revision = 0, sequence = 0; uint32_t timestamp = 0, retentionFloor = 0; };
+void encodeControl(uint8_t out[ControlBytes], const uint8_t key[32], const Control&);
+bool decodeControl(const uint8_t*, const uint8_t key[32], Control&, size_t bytes = ControlBytes);
 }

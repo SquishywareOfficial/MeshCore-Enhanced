@@ -48,11 +48,14 @@ Run-Suite 'companion_cli' @('test/test_companion_cli/test_companion_cli.cpp',
 $historySources = @(Get-ChildItem src/helpers/room_history/*.cpp |
   Where-Object { $_.Name -ne 'SpiffsHistoryStorage.cpp' } |
   ForEach-Object { $_.FullName })
-Run-Suite 'room_history' (@('test/test_room_history/test_room_history.cpp',
-  'src/helpers/ConfigSerializer.cpp','src/Utils.cpp','src/Packet.cpp') + $historySources) @('-DXIAO_WIO_ROOM_HISTORY=1')
-Run-Suite 'room_history_disabled' (@('test/test_room_history/test_room_history.cpp',
-  'src/helpers/ConfigSerializer.cpp','src/Utils.cpp','src/Packet.cpp') + $historySources)
+Run-Suite 'room_history' (@('test/test_room_history/test_room_history.cpp', 'test/test_room_history/test_usb_bot.cpp', 'test/test_room_history/test_chat_replay.cpp',
+  'src/helpers/ConfigSerializer.cpp','src/Utils.cpp','src/Packet.cpp') + $historySources) @('-DXIAO_WIO_ROOM_HISTORY=1','-DXIAO_WIO_WIFI_TIME=1')
+Run-Suite 'room_history_disabled' (@('test/test_room_history/test_room_history.cpp', 'test/test_room_history/test_usb_bot.cpp', 'test/test_room_history/test_chat_replay.cpp',
+  'src/helpers/ConfigSerializer.cpp','src/Utils.cpp','src/Packet.cpp') + $historySources) @('-DXIAO_WIO_WIFI_TIME=1')
 Run-Suite 'room_delivery' (@('test/test_room_delivery/test_room_delivery.cpp',
   'test/test_room_delivery/ProtocolIdentityMocks.cpp', 'src/helpers/BaseChatMesh.cpp',
   'src/helpers/StaticPoolPacketManager.cpp','src/helpers/AdvertDataHelpers.cpp', 'src/helpers/TxtDataHelpers.cpp',
   'src/Mesh.cpp','src/Dispatcher.cpp','src/Packet.cpp','src/Utils.cpp') + $historySources) @('-DXIAO_WIO_ROOM_ACK_BACKPRESSURE=1')
+
+Run-Suite 'wifi_time' @('test/test_wifi_time/test_wifi_time.cpp',
+  'src/helpers/ConfigSerializer.cpp','src/Utils.cpp','src/Packet.cpp') @('-DXIAO_WIO_WIFI_TIME=1')

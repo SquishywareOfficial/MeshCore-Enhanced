@@ -10,8 +10,19 @@
 #include <AsyncElegantOTA.h>
 
 #include <SPIFFS.h>
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+#include <esp_sntp.h>
+#endif
 
 bool ESP32Board::startOTAUpdate(const char* id, char reply[]) {
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  // OTA takes ownership before starting AP; time service must not switch it off.
+  ota_wifi_active = true;
+  esp_sntp_stop();
+  WiFi.disconnect(false, false);
+  WiFi.mode(WIFI_AP);
+  time_wifi_active = false;
+#endif
   inhibit_sleep = true;   // prevent sleep during OTA
   WiFi.softAP("MeshCore-OTA", NULL);
 

@@ -7,7 +7,8 @@ class RoomHistory {
   uint8_t server[32] = {};
   IndexEntry* entries = nullptr;
   uint16_t start = 0, used = 0, slots = SegmentSlots;
-  uint32_t generation = 0;
+  uint32_t generation = 0, retentionFloor = 0;
+  uint16_t retention = Capacity;
   Control control;
   State status = State::Unopened;
   void insert(const Post&, uint32_t segment, uint16_t slot);
@@ -19,7 +20,10 @@ public:
   explicit RoomHistory(Storage& s) : storage(s) {}
   ~RoomHistory() { storage.release(entries); }
   RoomHistory(const RoomHistory&) = delete; RoomHistory& operator=(const RoomHistory&) = delete;
-  Result begin(const uint8_t key[32]);
+  Result begin(const uint8_t key[32], uint16_t retained = Capacity, uint32_t floor = 0);
+  Result configureRetention(uint16_t retained, uint32_t floor);
+  uint16_t retentionLimit() const { return retention; }
+  uint32_t floorFor(uint16_t retained) const;
   Result append(const uint8_t author[32], uint32_t senderTimestamp, const char* text, uint8_t kind, uint32_t now, Post& committed, uint32_t monotonicMillis = 0);
   Result findSubmission(const uint8_t author[32], uint32_t senderTimestamp, const char* text, Post& found);
   Result read(const IndexEntry&, Post&);

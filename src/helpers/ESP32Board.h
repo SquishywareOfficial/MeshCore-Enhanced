@@ -20,6 +20,10 @@ class ESP32Board : public mesh::MainBoard {
 protected:
   uint8_t startup_reason;
   bool inhibit_sleep = false;
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  bool time_wifi_active = false;
+  bool ota_wifi_active = false;
+#endif
   static inline portMUX_TYPE sleepMux = portMUX_INITIALIZER_UNLOCKED;
 
 public:
@@ -72,7 +76,11 @@ public:
 
   void sleep(uint32_t secs) override {
     // Skip if not allow to sleep
-    if (inhibit_sleep) {
+    if (inhibit_sleep
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+        || time_wifi_active
+#endif
+    ) {
       delay(1); // Give MCU to OTA to run
       return;
     }
@@ -155,6 +163,11 @@ public:
   }
 
   bool startOTAUpdate(const char* id, char reply[]) override;
+
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  void setTimeWifiActive(bool active) { time_wifi_active = active; }
+  bool isOtaWifiActive() const { return ota_wifi_active; }
+#endif
 
   void setInhibitSleep(bool inhibit) {
     inhibit_sleep = inhibit;

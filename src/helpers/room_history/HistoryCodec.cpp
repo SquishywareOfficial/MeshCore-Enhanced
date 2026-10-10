@@ -43,14 +43,18 @@ bool decodeSegment(const uint8_t* in, const uint8_t* key, uint32_t generation, u
   first = get64(in + 48); return first && generation;
 }
 void encodeControl(uint8_t* out, const uint8_t* key, const Control& c) {
-  memset(out, 0, HeaderBytes); memcpy(out, "RHC1", 4); put16(out + 4, 1); put16(out + 6, HeaderBytes);
+  memset(out, 0, ControlBytes); memcpy(out, "RHC1", 4); put16(out + 4, 2); put16(out + 6, ControlBytes);
   put64(out + 8, c.revision); memcpy(out + 16, key, 32);
-  put64(out + 48, c.sequence); put32(out + 56, c.timestamp); put32(out + 60, crc32(out, 60));
+  put64(out + 48, c.sequence); put32(out + 56, c.timestamp); put32(out + 60, c.retentionFloor);
+  put32(out + ControlBytes - 4, crc32(out, ControlBytes - 4));
 }
-bool decodeControl(const uint8_t* in, const uint8_t* key, Control& c) {
-  if (memcmp(in, "RHC1", 4) || get16(in + 4) != 1 || get16(in + 6) != HeaderBytes ||
-      memcmp(in + 16, key, 32) || get32(in + 60) != crc32(in, 60)) return false;
+bool decodeControl(const uint8_t* in, const uint8_t* key, Control& c, size_t bytes) {
+  if ((bytes != HeaderBytes && bytes != ControlBytes) || memcmp(in, "RHC1", 4) ||
+      get16(in + 4) != (bytes == HeaderBytes ? 1 : 2) || get16(in + 6) != bytes ||
+      memcmp(in + 16, key, 32) || get32(in + bytes - 4) != crc32(in, bytes - 4)) return false;
   c.revision = get64(in + 8); c.sequence = get64(in + 48); c.timestamp = get32(in + 56);
-  return c.revision && ((!c.sequence && !c.timestamp) || (c.sequence && c.timestamp));
+  c.retentionFloor = bytes == HeaderBytes ? 0 : get32(in + 60);
+  if (bytes == ControlBytes) for (size_t i = 64; i < ControlBytes - 4; ++i) if (in[i]) return false;
+  return c.revision && c.retentionFloor <= c.timestamp && ((!c.sequence && !c.timestamp) || (c.sequence && c.timestamp));
 }
 }

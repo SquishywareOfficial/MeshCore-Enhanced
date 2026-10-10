@@ -85,8 +85,9 @@ TEST(RoomDelivery, RetriesAckOnceAcceptedWithoutRepeatedQueueNotificationAndVali
   EXPECT_EQ(1, mesh.queued); EXPECT_EQ(1, mesh.notifications); EXPECT_EQ(3, packets.getOutboundTotal()); EXPECT_EQ(3, mesh.callbacks);
   mesh.receive(1, 10, "changed", false, 3); EXPECT_EQ(3, packets.getOutboundTotal()); EXPECT_EQ(1, mesh.queued);
   mesh.receive(2, 10, "one"); EXPECT_EQ(2, mesh.queued); EXPECT_EQ(10u, mesh.room(2)->sync_since);
-  mesh.receive(1, 11, "next"); mesh.receive(1, 10, "one"); EXPECT_EQ(3, mesh.queued);
-  mesh.room(1)->sync_since = 0; mesh.receive(1, 10, "one"); EXPECT_EQ(4, mesh.queued); // explicit rewind
+  mesh.receive(1, 11, "next"); mesh.receive(1, 10, "one"); EXPECT_EQ(4, mesh.queued); // authenticated backfill
+  EXPECT_EQ(11u, mesh.room(1)->sync_since);
+  mesh.room(1)->sync_since = 0; mesh.receive(1, 10, "one"); EXPECT_EQ(5, mesh.queued); // explicit rewind
 }
 TEST(RoomDelivery, FloodPathAckAndChannelEvictionPreserveFrameProtocol) {
   TestRadio radio; TestMillis ms; TestRTC rtc; TestRNG rng; StaticPoolPacketManager packets(30); SimpleMeshTables tables;
@@ -136,4 +137,37 @@ TEST(RoomDelivery, Integrated2000PerRecipientWithFullQueuesFairResumeAndRestartC
   HistoryPlayback resumed(recovered, users); ASSERT_EQ(Result::Ok, resumed.login(*users.find(key1), 0, 2000));
   EXPECT_EQ(0, resumed.count(key1)); EXPECT_EQ(2000u, users.find(key2)->delivered);
 }
+
+TEST(RoomDelivery, ManualOlderBackfillKeepsCompanionAndServerWatermarksAndRetriesFullQueue) {
+  using namespace room_history;
+  FakeStorage fs; uint8_t room[32]={1}, author[32]={0xab}, user[32]={9};
+  RoomHistory history(fs); HistoryMembers members(fs); HistoryPlayback playback(history,members); Member* m;
+  ASSERT_EQ(Result::Ok,history.begin(room)); ASSERT_EQ(Result::Ok,members.begin(room));
+  ASSERT_EQ(Result::Ok,members.login(user,0,false,0,m));
+  for(uint32_t i=1;i<=1000;++i) { Post p; ASSERT_EQ(Result::Ok,history.append(author,i,"original",0,100,p)); }
+  history.tick(6000);
+  ASSERT_EQ(Result::Ok,members.delivered(user,m->incarnation,1000,history.at(999).timestamp));
+  auto revision=members.revision(); ASSERT_EQ(Result::Ok,playback.login(*members.find(user),0,200));
+  TestRadio radio;TestMillis ms;TestRTC rtc;TestRNG rng;StaticPoolPacketManager packets(4);SimpleMeshTables tables;
+  Receiver receiver(radio,ms,rng,rtc,packets,tables,16);
+  receiver.receive(1,history.at(999).timestamp,"latest");
+  packets.free(packets.removeOutboundByIdx(0)); receiver.queued=0;
+  ASSERT_EQ(Result::Ok,playback.replay(user,500,200));
+  int accepted=0,blocked=0;
+  for(int tick=0;tick<400 && accepted<301;++tick) {
+    Post p;ASSERT_EQ(Result::Ok,playback.next(user,p,6000)); EXPECT_EQ(uint64_t(500+accepted),p.sequence);
+    receiver.receive(1,p.timestamp,p.text);
+    if(!packets.getOutboundTotal()) { ++blocked;receiver.queued=0;playback.keepAlive(user,receiver.room(1)->sync_since);continue; }
+    auto ack=packets.removeOutboundByIdx(0);uint32_t hash;memcpy(&hash,ack->payload,4);packets.free(ack);
+    const Frame& f=receiver.queue[receiver.queued-1];uint32_t wireTime;memcpy(&wireTime,f.buf+12,4);
+    EXPECT_EQ(p.timestamp,wireTime);EXPECT_EQ(0xab,f.buf[16]);
+    EXPECT_EQ(0,memcmp(f.buf+20,"original",8));
+    playback.pending(user,p,hash);ASSERT_EQ(Result::Ok,playback.acknowledge(user,hash));
+    EXPECT_EQ(history.at(999).timestamp,receiver.room(1)->sync_since); ++accepted;
+  }
+  EXPECT_EQ(301,accepted);EXPECT_GT(blocked,0);EXPECT_EQ(1000u,members.find(user)->delivered);
+  EXPECT_EQ(revision,members.revision());EXPECT_FALSE(playback.session(user)->replayActive);
+  EXPECT_EQ(0,playback.count(user));
+}
+
 int main(int argc, char** argv) { ::testing::InitGoogleTest(&argc, argv); return RUN_ALL_TESTS(); }

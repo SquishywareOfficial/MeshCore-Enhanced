@@ -6,6 +6,9 @@
 #include <helpers/ClientACL.h>
 #include <helpers/RegionMap.h>
 #include <helpers/ConfigSerializer.h>
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+#include <helpers/WifiTime.h>
+#endif
 
 #if defined(WITH_RS232_BRIDGE) || defined(WITH_ESPNOW_BRIDGE)
 #define WITH_BRIDGE
@@ -22,6 +25,9 @@
 
 class NodePrefs : public ConfigSerializer {
 public:
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  wifi_time::Preferences wifi;
+#endif
   // in-memory backing data
   float airtime_factor = 0;
   char node_name[32];
@@ -42,6 +48,8 @@ public:
   uint8_t allow_read_only = 0;
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
   uint16_t history_playback = 100;
+  uint16_t history_amount = 2000;
+  uint32_t history_retention_floor = 0; // exclusive durable timestamp floor
 #endif
   uint8_t multi_acks = 0;
   float bw = 0;
@@ -175,6 +183,8 @@ private:
       def("rd_only", _parent->allow_read_only);
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
       defBounded("hist_playback", _parent->history_playback, 1, 2000, 100);
+      defBounded("hist_amount", _parent->history_amount, 1, 2000, 2000);
+      def("hist_floor", _parent->history_retention_floor);
 #endif
     }
   public:
@@ -198,6 +208,9 @@ protected:
     def("repeat", repeat);
     def("room", room);
     def("power", power);
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+    def("wifi", wifi);
+#endif
   }
 
 public:
@@ -213,7 +226,11 @@ public:
 class CommonCLICallbacks {
 public:
   virtual void savePrefs() = 0;
-  virtual void onClockSet(uint32_t epoch) {} // successful authenticated civil-time input only
+  virtual void onClockSet(uint32_t epoch) {} // accepted civil time: administrator input or configured NTP
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  virtual bool supportsClockAnnouncements() { return false; }
+  virtual void announceClockSync(const wifi_time::Completion& result) {}
+#endif
   virtual const char* getFirmwareVer() = 0;
   virtual const char* getBuildDate() = 0;
   virtual const char* getRole() = 0;
@@ -275,6 +292,10 @@ class CommonCLI {
   RegionMap* _region_map;
   ClientACL* _acl;
   char tmp[PRV_KEY_SIZE*2 + 4];
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  wifi_time::Service _wifi_time;
+  FILESYSTEM* _prefs_fs = nullptr;
+#endif
 
   mesh::RTCClock* getRTCClock() { return _rtc; }
   void savePrefs();
@@ -288,6 +309,9 @@ public:
   CommonCLI(mesh::MainBoard& board, mesh::RTCClock& rtc, SensorManager& sensors, RegionMap& region_map, ClientACL& acl, NodePrefs* prefs, CommonCLICallbacks* callbacks)
       : _board(&board), _rtc(&rtc), _sensors(&sensors), _region_map(&region_map), _acl(&acl), _prefs(prefs), _callbacks(callbacks) { }
 
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  void loopWifiTime();
+#endif
   void loadPrefs(FILESYSTEM* _fs);
   bool savePrefs(FILESYSTEM* _fs);
   void handleCommand(uint32_t sender_timestamp, char* command, char* reply);

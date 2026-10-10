@@ -4,6 +4,10 @@
 #include "MyMesh.h"
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
 #include <helpers/room_history/HistoryStartup.h>
+#include <helpers/room_history/UsbBot.h>
+#include <helpers/room_history/UsbReplyStream.h>
+static room_history::UsbReplyStream usb_bot_output;
+static room_history::UsbBotLine usb_bot_line;
 #include <helpers/room_history/HistoryPreferences.h>
 #include <helpers/room_history/SpiffsHistoryStorage.h>
 #include <esp_partition.h>
@@ -45,6 +49,9 @@ static void enterRoomRecovery(const char* reason) {
   static UITask ui_task(display);
 #endif
 
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+static wifi_time::ConsoleLine wifi_console_line;
+#endif
 StdRNG fast_rng;
 SimpleMeshTables tables;
 MyMesh the_mesh(board, radio_driver, *new ArduinoMillis(), fast_rng, rtc_clock, tables);
@@ -59,8 +66,24 @@ static char ethernet_command[MAX_POST_TEXT_LEN+1];
 #endif
 
 void setup() {
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  // ESP32-S3 HWCDC defaults to 256 RX bytes. Hex-encoded bot submissions
+  // exceed that; reserve a complete line plus USB packet headroom before begin.
+  size_t usb_rx_bytes = Serial.setRxBufferSize(1024);
+#if defined(ARDUINO_USB_MODE) && ARDUINO_USB_MODE == 1 && ARDUINO_USB_CDC_ON_BOOT
+  // A complete maximum page (eight <640-byte lines plus end) fits without
+  // driver write-loop backpressure. Allocation failure must fail closed.
+  size_t usb_tx_bytes = Serial.setTxBufferSize(8192);
+#endif
+#endif
   Serial.begin(115200);
   delay(1000);
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  if (usb_rx_bytes < 1024) { enterRoomRecovery("USB receive buffer allocation failed"); return; }
+#if defined(ARDUINO_USB_MODE) && ARDUINO_USB_MODE == 1 && ARDUINO_USB_CDC_ON_BOOT
+  if (usb_tx_bytes < 8192) { enterRoomRecovery("USB transmit buffer allocation failed"); return; }
+#endif
+#endif
 
   board.begin();
 
@@ -182,13 +205,13 @@ void loop() {
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
   if (recovery_reason) {
     while (Serial.available()) {
-      char c = Serial.read(); size_t n = strlen(command);
-      if (c == '\r' || c == '\n') {
-        if (n) {
-          if (!strcmp(command, "reboot")) board.reboot();
-          Serial.print("ERR recovery: "); Serial.println(recovery_reason); command[0] = 0;
-        }
-      } else if (n < sizeof(command) - 1) { command[n] = c; command[n + 1] = 0; }
+      auto status = usb_bot_line.feed(char(Serial.read()));
+      if (status == room_history::UsbBotLine::Incomplete) continue;
+      if (status == room_history::UsbBotLine::Ready && !strcmp(usb_bot_line.text(), "reboot")) board.reboot();
+      if (room_history::UsbBot::isCommand(usb_bot_line.text()))
+        Serial.println("@bot {\"type\":\"error\",\"error\":\"recovery required\"}");
+      else { Serial.print("ERR recovery: "); Serial.println(recovery_reason); }
+      usb_bot_line.reset(); break;
     }
     delay(10);
 #ifdef HAS_EXTERNAL_WATCHDOG
@@ -197,6 +220,47 @@ void loop() {
     return;
   }
 #endif
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  while (Serial.available()) {
+    char c = Serial.read();
+#if !defined(XIAO_WIO_WIFI_TIME) || !XIAO_WIO_WIFI_TIME
+    Serial.print(c);
+#endif
+    auto status = usb_bot_line.feed(c);
+    if (status == room_history::UsbBotLine::Incomplete) continue;
+#if !defined(XIAO_WIO_WIFI_TIME) || !XIAO_WIO_WIFI_TIME
+    if (c == '\r') Serial.print('\n'); // put tagged replies on their own line
+#endif
+    if (status == room_history::UsbBotLine::Rejected) {
+      Serial.println("@bot {\"type\":\"error\",\"error\":\"command too long or invalid\"}");
+    } else if (!the_mesh.handleUsbBotCommand(usb_bot_line.text(), usb_bot_output)) {
+      char reply[160] = {};
+      // CommonCLI edits command strings in place; use this bounded mutable copy.
+      char input[384]; strcpy(input, usb_bot_line.text());
+#ifdef ETHERNET_ENABLED
+      if (!ethernet_handle_command(input, reply)) the_mesh.handleCommand(0, input, reply);
+#else
+      the_mesh.handleCommand(0, input, reply);
+#endif
+      if (reply[0]) { Serial.print("  -> "); Serial.println(reply); }
+    }
+    usb_bot_output.flush(); // finish any regular CLI reply as well
+    usb_bot_line.reset(); break; // service the radio between complete commands
+  }
+#else
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  while (Serial.available()) {
+    auto status = wifi_console_line.feed(char(Serial.read()));
+    if (status == wifi_time::ConsoleLine::Incomplete) continue;
+    if (status == wifi_time::ConsoleLine::Rejected) Serial.println("ERR command too long or invalid");
+    else {
+      char reply[160] = {};
+      the_mesh.handleCommand(0, wifi_console_line.text(), reply);
+      if (reply[0]) { Serial.print("  -> "); Serial.println(reply); }
+    }
+    wifi_console_line.reset(); break;
+  }
+#else
   int len = strlen(command);
   while (Serial.available() && len < sizeof(command)-1) {
     char c = Serial.read();
@@ -227,6 +291,8 @@ void loop() {
 
     command[0] = 0;  // reset command buffer
   }
+#endif
+#endif
 
 #ifdef ETHERNET_ENABLED
   ethernet_loop_maintain();

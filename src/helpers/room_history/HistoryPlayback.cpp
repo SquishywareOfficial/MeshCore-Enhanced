@@ -46,6 +46,35 @@ Result HistoryPlayback::login(const Member& m, uint32_t since, uint16_t limit) {
   }
   return Result::Ok;
 }
+uint16_t HistoryPlayback::replayCount(const PlaybackSession& s) const {
+  if (!s.replayActive) return 0;
+  uint16_t count = 0;
+  for (uint16_t i = 0; i < history.count(); ++i) {
+    uint64_t seq = history.at(i).sequence;
+    if (seq >= s.replayFirst && seq <= s.replayLast && seq > s.replayCursor) ++count;
+  }
+  return count;
+}
+Result HistoryPlayback::replay(const uint8_t* key, uint16_t startOffset, uint16_t endOffset) {
+  if (history.state() != State::Ready || members.state() != State::Ready) return Result::Recovery;
+  PlaybackSession* s = session(key); if (!s) return Result::NotFound;
+  if (s->ack || s->replayActive) return Result::Busy;
+  if (startOffset < endOffset || startOffset >= history.count() || nextGeneration == UINT64_MAX) return Result::Invalid;
+  s->generation = ++nextGeneration; s->pendingSequence = 0; s->pendingReplay = false;
+  s->replayFirst = history.at(history.count() - 1 - startOffset).sequence;
+  s->replayLast = history.at(history.count() - 1 - endOffset).sequence;
+  s->replayCursor = s->replayFirst - 1; s->replayRemaining = startOffset - endOffset + 1;
+  s->replayExpired = 0; s->replayActive = true; return Result::Ok;
+}
+Result HistoryPlayback::cancelReplay(const uint8_t* key) {
+  PlaybackSession* s = session(key); if (!s) return Result::NotFound;
+  if (s->replayActive || s->pendingReplay) {
+    if (nextGeneration == UINT64_MAX) return Result::Full;
+    s->generation = ++nextGeneration; s->replayActive = s->pendingReplay = false;
+    s->ack = 0; s->pendingSequence = 0; s->replayRemaining = 0;
+  }
+  return Result::Ok;
+}
 void HistoryPlayback::keepAlive(const uint8_t* key, uint32_t since) {
   PlaybackSession* s = session(key); if (!s || since > history.timestampFloor()) return;
   // Hints never clear a pending ACK, persist delivery, or rewind the cap/window.
@@ -55,6 +84,19 @@ Result HistoryPlayback::next(const uint8_t* key, Post& p, uint32_t monotonicMill
   if (history.state() != State::Ready || members.state() != State::Ready) return Result::Recovery;
   PlaybackSession* s = session(key); if (!s) return Result::NotFound;
   Result r = refresh(*s); if (r != Result::Ok) return r;
+  if (s->replayActive) {
+    uint16_t available = replayCount(*s);
+    if (available < s->replayRemaining) { s->replayExpired += s->replayRemaining - available; s->replayRemaining = available; }
+    for (uint16_t i = 0; i < history.count(); ++i) {
+      const auto& e = history.at(i);
+      if (e.sequence < s->replayFirst || e.sequence > s->replayLast || e.sequence <= s->replayCursor) continue;
+      if (e.reserved && int32_t(monotonicMillis - e.readyAt) < 0) return Result::NotFound;
+      if (s->pendingSequence && s->pendingSequence != e.sequence) { ++expired; s->pendingSequence = 0; s->ack = 0; }
+      return history.read(e, p);
+    }
+    s->replayActive = false; s->pendingReplay = false;
+    s->ack = 0; s->pendingSequence = 0;
+  }
   for (uint16_t i = 0; i < history.count(); ++i) if (eligible(*s, i)) {
     const auto& e = history.at(i);
     if (e.reserved && int32_t(monotonicMillis - e.readyAt) < 0) return Result::NotFound;
@@ -66,16 +108,24 @@ Result HistoryPlayback::next(const uint8_t* key, Post& p, uint32_t monotonicMill
 uint16_t HistoryPlayback::count(const uint8_t* key) {
   if (history.state() != State::Ready || members.state() != State::Ready) return 0;
   PlaybackSession* s = session(key); if (!s || refresh(*s) != Result::Ok) return 0;
-  uint16_t n = 0; for (uint16_t i = 0; i < history.count(); ++i) if (eligible(*s, i)) ++n; return n;
+  uint16_t n = replayCount(*s); for (uint16_t i = 0; i < history.count(); ++i) if (eligible(*s, i)) ++n; return n;
 }
 void HistoryPlayback::pending(const uint8_t* key, const Post& p, uint32_t ack) {
   PlaybackSession* s = session(key); if (!s) return;
+  s->pendingReplay = s->replayActive;
   s->pendingSequence = p.sequence; s->pendingTimestamp = p.timestamp; s->pendingGeneration = s->generation; s->ack = ack;
 }
 void HistoryPlayback::timeout(const uint8_t* key) { PlaybackSession* s = session(key); if (s) s->ack = 0; }
 Result HistoryPlayback::acknowledge(const uint8_t* key, uint32_t ack) {
   PlaybackSession* s = session(key);
   if (!s || !s->ack || s->ack != ack || s->pendingGeneration != s->generation) return Result::NotFound;
+  if (s->pendingReplay) {
+    // Historical delivery never mutates the durable normal watermark or hints.
+    s->replayCursor = s->pendingSequence;
+    if (s->replayRemaining) --s->replayRemaining;
+    if (s->replayCursor >= s->replayLast) s->replayActive = false;
+    s->ack = 0; s->pendingSequence = 0; s->pendingReplay = false; return Result::Ok;
+  }
   Result r = members.delivered(key, s->incarnation, s->pendingSequence, s->pendingTimestamp);
   if (r == Result::Ok || r == Result::Duplicate) {
     s->cursor = std::max(s->cursor, s->pendingSequence); s->hintTimestamp = std::max(s->hintTimestamp, s->pendingTimestamp);

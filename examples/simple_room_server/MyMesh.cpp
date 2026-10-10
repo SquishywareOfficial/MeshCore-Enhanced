@@ -1,5 +1,10 @@
 #include "MyMesh.h"
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+#include <helpers/room_history/UsbBot.h>
+#include <helpers/room_history/UsbHistory.h>
+#include <algorithm>
+#endif
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
 #include <helpers/room_history/HistoryReceive.h>
 #include <helpers/room_history/HistoryLogin.h>
 #endif
@@ -48,6 +53,21 @@ void MyMesh::addPost(ClientInfo *client, const char *postData) {
 }
 #endif
 
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+void MyMesh::announceClockSync(const wifi_time::Completion& result) {
+  char message[100];
+  if (result.success) {
+    DateTime dt(result.utc);
+    snprintf(message, sizeof(message), "[ROOM] Clock was synced to: %04u-%02u-%02u %02u:%02u:%02u UTC",
+             unsigned(dt.year()), unsigned(dt.month()), unsigned(dt.day()),
+             unsigned(dt.hour()), unsigned(dt.minute()), unsigned(dt.second()));
+  } else {
+    snprintf(message, sizeof(message), "[ROOM] Clock failed to sync (%u attempts exhausted).", unsigned(result.attempts));
+  }
+  addSystemPost(message); // room identity, existing journal and encrypted delivery
+}
+#endif
+
 void MyMesh::addSystemPost(const char *postData) {
   if (!postData || postData[0] == 0) return;
 
@@ -89,12 +109,21 @@ void MyMesh::reconcileHistorySessions() {
     if (!playback.session(c->id.pub_key)) c->extra.room.pending_ack = 0;
   }
 }
-room_history::Result MyMesh::storePost(const mesh::Identity& author, uint32_t senderTimestamp, const char* text, uint8_t kind) {
+room_history::Result MyMesh::storePost(const mesh::Identity& author, uint32_t senderTimestamp, const char* text, uint8_t kind, room_history::Post* output) {
   room_history::Post committed;
   auto result = history.append(author.pub_key, senderTimestamp, text, kind, getRTCClock()->getCurrentTime(), committed, millis());
   history_admin.lastError = result;
   if (result == room_history::Result::Ok) { ++_num_posted; next_push = futureMillis(PUSH_NOTIFY_DELAY_MILLIS); }
+  if (output && (result == room_history::Result::Ok || result == room_history::Result::Duplicate)) *output = committed;
   return result;
+}
+bool MyMesh::handleUsbBotCommand(const char* command, Stream& output) {
+  room_history::UsbHistory readable(history);
+  if (readable.handle(command, output)) return true;
+  room_history::UsbBot bot(history, self_id.pub_key);
+  return bot.handle(command, output, [this](uint32_t request, const char* text, room_history::Post& post) {
+    return storePost(self_id, request, text, 0, &post);
+  });
 }
 #else
 void MyMesh::storePost(const mesh::Identity &author, const char *postData) {
@@ -184,7 +213,12 @@ bool MyMesh::processAck(const uint8_t *data) {
 #endif
       client->extra.room.pending_ack = 0; // clear this, so next push can happen
       client->extra.room.push_failures = 0;
-      client->extra.room.sync_since = client->extra.room.push_post_timestamp; // advance Client's SINCE timestamp, to sync next post
+#if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+      // A manual historical replay must not rewind even this volatile hint.
+      client->extra.room.sync_since = std::max(client->extra.room.sync_since, client->extra.room.push_post_timestamp);
+#else
+      client->extra.room.sync_since = client->extra.room.push_post_timestamp;
+#endif
       return true;
     }
   }
@@ -820,8 +854,10 @@ void MyMesh::begin(FILESYSTEM *fs) {
   _cli.loadPrefs(_fs);
 
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
-  auto recovered = history.begin(self_id.pub_key);
+  auto recovered = history.begin(self_id.pub_key, _prefs.history_amount, _prefs.history_retention_floor);
   auto users = history_members.begin(self_id.pub_key);
+  if (history_aliases.begin(self_id.pub_key) != room_history::Result::Ok)
+    Serial.println("ERR alias storage unavailable; use public keys for admin commands.");
   if (users == room_history::Result::Ok) {
     for (uint16_t i = 0; i < history_members.count(); ++i) {
       const auto& m = history_members.at(i);
@@ -1078,13 +1114,25 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
   }
 
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
+  if (room_history::UsbBot::isCommand(command) || room_history::UsbHistory::isCommand(command)) {
+    snprintf(reply, 160 - size_t(reply - reply_start), "ERR USB only"); return;
+  }
   if (!strcmp(command, "get history.stack")) {
     snprintf(reply, 160 - size_t(reply - reply_start), "> loop stack minimum free=%lu bytes",
       (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
     return;
   }
+  if (history_chat_admin.handle(command, reply, 160 - size_t(reply - reply_start),
+      [this](const uint8_t* key) {
+        auto c = acl.getClient(key, PUB_KEY_SIZE);
+        return c && c->last_activity && (c->permissions & PERM_ACL_ROLE_MASK) != PERM_ACL_GUEST;
+      }, [this](const uint8_t* key) {
+        auto c = acl.getClient(key, PUB_KEY_SIZE); if (c) c->extra.room.pending_ack = 0;
+      })) {
+    next_push = futureMillis(PUSH_NOTIFY_DELAY_MILLIS); return;
+  }
   if (history_admin.handle(command, reply, 160 - size_t(reply - reply_start), _prefs.history_playback,
-      historyUptime(), [this]() { return _cli.savePrefs(_fs); }, history_storage.usingInternalMemory() ? "internal" : "psram")) {
+      historyUptime(), [this]() { return _cli.savePrefs(_fs); }, history_storage.usingInternalMemory() ? "internal" : "psram", &_prefs.history_amount, &_prefs.history_retention_floor)) {
     reconcileHistorySessions(); return;
   }
 #endif
@@ -1184,6 +1232,9 @@ bool MyMesh::saveFilter(ClientInfo* client) {
 }
 
 void MyMesh::loop() {
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  _cli.loopWifiTime();
+#endif
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
   history.tick(millis()); reconcileHistorySessions();
 #endif

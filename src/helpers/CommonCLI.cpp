@@ -8,6 +8,9 @@
 #include "AdvertDataHelpers.h"
 #include "TxtDataHelpers.h"
 #include <RTClib.h>
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+#include "ESP32WifiTime.h"
+#endif
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
 #include "room_history/SpiffsHistoryStorage.h"
 #include "room_history/HistoryPreferences.h"
@@ -37,6 +40,9 @@ static bool isValidName(const char *n) {
 }
 
 void CommonCLI::loadPrefs(FILESYSTEM* fs) {
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  _prefs_fs = fs;
+#endif
   if (fs->exists("/prefs.json")) {
 #if defined(RP2040_PLATFORM)
     File file = fs->open("/prefs.json", "r");
@@ -46,7 +52,7 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
     if (file) {
       _prefs->loadSerial(file);   // new Serial prefs
 #if defined(XIAO_WIO_ROOM_HISTORY) && XIAO_WIO_ROOM_HISTORY
-      if (_prefs->usedBoundedFallback()) Serial.println("WARN invalid history.playback restored as 100; preferences not rewritten.");
+      if (_prefs->usedBoundedFallback()) Serial.println("WARN invalid bounded setting restored to default; preferences not rewritten.");
 #endif
       file.close();
     }
@@ -202,7 +208,27 @@ uint8_t CommonCLI::buildAdvertData(uint8_t node_type, uint8_t* app_data) {
   }
 }
 
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+void CommonCLI::loopWifiTime() {
+  // One shared CLI instance per firmware; backend never writes preferences.
+  static Esp32WifiTimeBackend backend(*static_cast<ESP32Board*>(_board));
+  uint32_t utc;
+  if (_wifi_time.update(_prefs->wifi, millis(), backend, utc)) {
+    _rtc->setCurrentTime(utc);
+    _callbacks->onClockSet(utc); // room history civil-time anchor, not journal floor
+  }
+  wifi_time::Completion result;
+  if (_wifi_time.takeCompletion(result) && _prefs->wifi.announce && _callbacks->supportsClockAnnouncements()) {
+    _callbacks->announceClockSync(result); // terminal outcome once; RTC already updated
+  }
+}
+#endif
+
 void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* reply) {
+#if defined(XIAO_WIO_WIFI_TIME) && XIAO_WIO_WIFI_TIME
+  if (wifi_time::handleCommand(_prefs->wifi, _wifi_time, command, reply,
+      [this]() { return _prefs_fs && savePrefs(_prefs_fs); }, _callbacks->supportsClockAnnouncements())) return;
+#endif
   if (handleEnvironmentConfigCommand(*_board, *_sensors, *_prefs, command, reply,
                                     [this]() { savePrefs(); })) return;
   if (handleBatteryCommand(*_board, *_prefs, command, reply, 160,

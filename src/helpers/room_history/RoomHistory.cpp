@@ -6,8 +6,9 @@ namespace room_history {
 void RoomHistory::segmentName(uint32_t n, char out[40]) { snprintf(out, 40, "/rh_s_%08lx", (unsigned long)n); }
 Result RoomHistory::failed(Result r) { ++failures; status = State::Recovery; return r; }
 void RoomHistory::insert(const Post& p, uint32_t gen, uint16_t slot) {
-  uint16_t idx = (start + used) % Capacity;
-  if (used == Capacity) { idx = start; start = (start + 1) % Capacity; } else ++used;
+  if (p.timestamp <= retentionFloor) return;
+  if (used == retention) { retentionFloor = std::max(retentionFloor, at(0).timestamp); start = (start + 1) % Capacity; --used; }
+  uint16_t idx = (start + used++) % Capacity;
   entries[idx] = {p.sequence, p.timestamp, p.senderTimestamp, gen, crc32(p.author, 32),
                   crc32(p.text, p.length), slot, p.kind, 0};
 }
@@ -21,15 +22,28 @@ bool RoomHistory::bytes(size_t& n) {
 }
 Result RoomHistory::reserve(uint64_t sequence, uint32_t timestamp) {
   if (control.revision == UINT64_MAX || !sequence || !timestamp) return Result::Full;
-  Control next; next.revision = control.revision + 1; next.sequence = sequence; next.timestamp = timestamp;
-  uint8_t data[HeaderBytes], verify[HeaderBytes];
+  Control next; next.revision = control.revision + 1; next.sequence = sequence; next.timestamp = timestamp; next.retentionFloor = retentionFloor;
+  uint8_t data[ControlBytes], verify[ControlBytes];
   encodeControl(data, server, next); const char* name = (next.revision & 1) ? "/rh_ctl_a" : "/rh_ctl_b";
-  if (!headroom(storage, HeaderBytes) || !storage.write(name, data, sizeof(data), false) ||
+  if (!headroom(storage, ControlBytes) || !storage.write(name, data, sizeof(data), false) ||
       !storage.read(name, 0, verify, sizeof(verify)) || memcmp(data, verify, sizeof(data))) return failed(Result::Io);
   control = next; return Result::Ok;
 }
-Result RoomHistory::begin(const uint8_t* key) {
+uint32_t RoomHistory::floorFor(uint16_t retained) const {
+  return retained && retained < used ? std::max(retentionFloor, at(used - retained - 1).timestamp) : retentionFloor;
+}
+Result RoomHistory::configureRetention(uint16_t retained, uint32_t floor) {
+  if (status != State::Ready) return Result::Recovery;
+  if (!retained || retained > Capacity || floor < retentionFloor || floor > control.timestamp) return Result::Invalid;
+  retention = retained; retentionFloor = floor;
+  if (floor > control.retentionFloor && reserve(control.sequence, control.timestamp) != Result::Ok) return Result::Io;
+  while (used && (used > retention || at(0).timestamp <= floor)) { start = (start + 1) % Capacity; --used; }
+  return prune();
+}
+Result RoomHistory::begin(const uint8_t* key, uint16_t retained, uint32_t floor) {
   status = State::Unopened; start = used = 0; generation = 0; slots = SegmentSlots; control = Control{};
+  if (!retained || retained > Capacity) return failed(Result::Invalid);
+  retention = retained; retentionFloor = floor;
   memcpy(server, key, 32);
   if (!entries) entries = static_cast<IndexEntry*>(storage.allocate(sizeof(IndexEntry) * Capacity));
   if (!entries || !storage.memoryHealthy()) return failed(Result::Full);
@@ -39,18 +53,20 @@ Result RoomHistory::begin(const uint8_t* key) {
   for (size_t i = 0; i < count; ++i) {
     if (files[i].bytes > ArchiveBudget - total) return failed(Result::Recovery); total += files[i].bytes;
     if (strcmp(files[i].name, "/rh_ctl_a") == 0 || strcmp(files[i].name, "/rh_ctl_b") == 0) {
-      uint8_t b[HeaderBytes]; Control candidate;
-      if (files[i].bytes == HeaderBytes && !storage.read(files[i].name, 0, b, sizeof(b))) return failed(Result::Io);
-      if (files[i].bytes == HeaderBytes && get32(b + 60) == crc32(b, 60) &&
-          (memcmp(b, "RHC1", 4) || get16(b + 4) != 1 || memcmp(b + 16, server, 32))) return failed(Result::Recovery);
-      if (files[i].bytes == HeaderBytes && decodeControl(b, server, candidate)) {
-        if (haveControl && candidate.revision == control.revision && (candidate.sequence != control.sequence || candidate.timestamp != control.timestamp)) return failed(Result::Recovery);
+      uint8_t b[ControlBytes] = {}; Control candidate; size_t length = files[i].bytes;
+      bool sized = length == HeaderBytes || length == ControlBytes;
+      if (sized && !storage.read(files[i].name, 0, b, length)) return failed(Result::Io);
+      if (sized && get32(b + length - 4) == crc32(b, length - 4) &&
+          (memcmp(b, "RHC1", 4) || get16(b + 4) != (length == HeaderBytes ? 1 : 2) || memcmp(b + 16, server, 32))) return failed(Result::Recovery);
+      if (sized && decodeControl(b, server, candidate, length)) {
+        if (haveControl && candidate.revision == control.revision && (candidate.sequence != control.sequence || candidate.timestamp != control.timestamp || candidate.retentionFloor != control.retentionFloor)) return failed(Result::Recovery);
         if (!haveControl || candidate.revision > control.revision) control = candidate;
         haveControl = true;
       }
     } else if (strncmp(files[i].name, "/rh_s_", 6)) return failed(Result::Recovery);
   }
   if (count && !haveControl) return failed(Result::Recovery);
+  retentionFloor = std::max(retentionFloor, control.retentionFloor);
   // Sort tiny file inventory, not the 2,000-record index, before scanning.
   std::sort(files, files + count, [](const FileInfo& a, const FileInfo& b) { return strcmp(a.name, b.name) < 0; });
   uint64_t lastSequence = 0; uint32_t lastTimestamp = 0;
@@ -87,9 +103,11 @@ Result RoomHistory::begin(const uint8_t* key) {
     }
     else slots = uint16_t(recordCount);
   }
-  if (lastSequence > control.sequence || lastTimestamp > control.timestamp) {
+  if (retentionFloor > std::max(lastTimestamp, control.timestamp)) return failed(Result::Recovery);
+  if (lastSequence > control.sequence || lastTimestamp > control.timestamp || retentionFloor > control.retentionFloor) {
     if (reserve(std::max(lastSequence, control.sequence), std::max(lastTimestamp, control.timestamp)) != Result::Ok) return Result::Io;
   }
+  if (retentionFloor > control.timestamp) return failed(Result::Recovery);
   status = State::Ready;
   return prune();
 }
@@ -129,7 +147,7 @@ Result RoomHistory::append(const uint8_t* author, uint32_t senderTime, const cha
   if (!kind) { Result found = findSubmission(author, senderTime, text, committed); if (found != Result::NotFound) return found; }
   if (control.sequence == UINT64_MAX || control.timestamp == UINT32_MAX || !storage.memoryHealthy()) return Result::Full;
   size_t size; if (!bytes(size)) return failed(Result::Recovery);
-  const size_t growth = RecordBytes + HeaderBytes + (slots == SegmentSlots ? HeaderBytes : 0);
+  const size_t growth = RecordBytes + ControlBytes + (slots == SegmentSlots ? HeaderBytes : 0);
   if (size + growth > ArchiveBudget || !headroom(storage, growth)) return Result::Full;
   if (slots == SegmentSlots) {
     FileInfo files[MaxSegments]; size_t fileCount;
@@ -152,6 +170,11 @@ Result RoomHistory::append(const uint8_t* author, uint32_t senderTime, const cha
   insert(p, generation, slots++); committed = p;
   // This volatile delay is independent of potentially future logical wire time.
   auto& newest = entries[(start + used - 1) % Capacity]; newest.reserved = 1; newest.readyAt = monotonicMillis + 6000;
+  // Advance automatic expiry only AFTER the new record commits: a failed new
+  // append must not discard the oldest successfully committed post. A cut before
+  // this second control write is recovered using the saved retention limit.
+  // Growth is refused in recovery, so it cannot resurrect that retained prefix.
+  if (retentionFloor > control.retentionFloor && reserve(seq,time) != Result::Ok) return Result::Ok;
   // A cleanup failure after a checked append cannot make the author retry a
   // different post: the committed record remains discoverable after recovery.
   prune(); return Result::Ok;

@@ -7,6 +7,9 @@ struct PlaybackSession {
   uint64_t incarnation = 0, generation = 0, joinFloor = 0, cursor = 0, capFloor = 0, snapshot = 0, indexedThrough = 0;
   uint64_t pendingSequence = 0, pendingGeneration = 0;
   uint32_t hintTimestamp = 0, pendingTimestamp = 0, ack = 0;
+  uint64_t replayFirst = 0, replayLast = 0, replayCursor = 0;
+  uint16_t replayRemaining = 0, replayExpired = 0;
+  bool replayActive = false, pendingReplay = false;
   bool active = false;
 };
 class HistoryPlayback {
@@ -25,6 +28,9 @@ public:
   template<class Active> void retainSessions(Active active) {
     for (auto& s : sessions) if (s.active && !active(s.key)) s.active = false;
   }
+  Result replay(const uint8_t key[32], uint16_t startOffset, uint16_t endOffset);
+  Result cancelReplay(const uint8_t key[32]);
+  uint16_t replayCount(const PlaybackSession&) const;
   void remove(const uint8_t key[32]);
   void keepAlive(const uint8_t key[32], uint32_t since);
   Result next(const uint8_t key[32], Post&, uint32_t monotonicMillis);
