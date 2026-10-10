@@ -4,8 +4,9 @@
  | [Versioned Releases](https://github.com/SquishywareOfficial/MeshCore-Enhanced/releases)
  | [XIAO build status](https://github.com/SquishywareOfficial/MeshCore-Enhanced/actions/workflows/build-xiao-wio.yml)
 
-This fork of [MeshCore](https://github.com/meshcore-dev/MeshCore) adds optional
-peripherals for the original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit:
+This fork of [MeshCore](https://github.com/meshcore-dev/MeshCore) adds persistent
+chatroom history, USB bots, optional Wi-Fi clock sync and configurable peripherals
+for the original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit:
 
 - Repeater, room server and companion: saved battery sensing enable/disable,
   selectable ADC GPIO and divider calibration, using existing battery reporting.
@@ -16,11 +17,14 @@ peripherals for the original Seeed XIAO ESP32-S3 + Wio-SX1262 B2B kit:
   announce the outcome as `[ROOM]`. See the [clock sync guide](docs/wifi_time.md).
 - Room server: separately configurable saved history (1-2,000; default 2,000)
   and catch-up (1-2,000; default 100), saved member progress, administrator replay
-  of older ranges using aliases/public keys, readable USB logs and member cleanup. New users start fresh; returning users catch up on missing posts.
+  of older ranges using aliases/public keys, readable USB logs and member cleanup.
+  History and member progress survive restarts. New users start fresh; returning
+  users catch up on missing posts.
 - Room server: a USB bot interface for a connected Pi/computer, with paged post
   reads and retry-safe replies; a Python client saves its cursor and reply outbox.
   No extra companion radio is required. See the [USB bot guide](docs/room_bot.md).
-- XIAO companions: signed room-message queue backpressure and retry deduplication.
+- XIAO companions: authenticated older room messages for targeted replay, queue
+  backpressure and retry deduplication without rewinding normal catch-up progress.
   Room memory/filesystem/history diagnostics remain available.
 
 See the [persistent room history guide](docs/room_history.md) and

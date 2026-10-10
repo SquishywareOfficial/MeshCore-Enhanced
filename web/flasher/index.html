@@ -14,7 +14,7 @@
     <section class="intro">
       <p class="eyebrow">XIAO ESP32-S3 + Wio-SX1262 B2B kit</p>
       <h1>Your mesh.<br>Your hardware.<br>A little more capable.</h1>
-      <p class="lead">Battery monitoring across all roles. Enclosure temperature, humidity and GPIO controls for repeaters and chatrooms.</p>
+      <p class="lead">Persistent chatroom history and USB bots. Battery monitoring across all roles, plus enclosure sensors, GPIO controls and optional Wi-Fi clock sync for repeaters and chatrooms.</p>
       <p id="build-status" role="status">Loading the latest successful build…</p>
     </section>
     <section class="install-notice" aria-labelledby="before-title">
@@ -26,6 +26,17 @@
       <p class="eyebrow">Choose a role</p><h2 id="choose-title">What will this node do?</h2>
       <div id="cards" class="cards"></div>
       <noscript>Enable JavaScript to load firmware downloads and the USB installer.</noscript>
+    </section>
+    <section class="steps" aria-labelledby="features-title">
+      <h2 id="features-title">What MeshCore Enhanced adds</h2>
+      <ul>
+        <li><strong>Chatroom history that survives restarts.</strong> Keep up to 2,000 messages in flash, with a separate catch-up amount (100 by default). Returning users receive missing messages; new users start fresh.</li>
+        <li><strong>Older messages on request.</strong> Administrators can replay selected ranges to a logged-in user using saved aliases or public keys, read history over USB and manage saved users. Updated Enhanced companions support older-message replay. <a href="https://github.com/SquishywareOfficial/MeshCore-Enhanced/blob/main/docs/room_history.md">History and replay guide ↗</a></li>
+        <li><strong>USB chatroom bots.</strong> Connect a Raspberry Pi or computer directly to the room server. The Python client reads posts and sends replies, with saved progress and sample <code>/bot ping</code>, <code>/bot help</code> and <code>/bot about</code> commands. <a href="https://github.com/SquishywareOfficial/MeshCore-Enhanced/blob/main/docs/room_bot.md">Bot guide ↗</a></li>
+        <li><strong>Optional Wi-Fi clock sync.</strong> Repeaters and chatrooms can briefly connect at startup or at a chosen interval, with retries and a low-battery guard. Rooms can announce the outcome. <a href="https://github.com/SquishywareOfficial/MeshCore-Enhanced/blob/main/docs/wifi_time.md">Clock guide ↗</a></li>
+        <li><strong>Configurable peripherals.</strong> Battery sensing with a selectable pin and divider calibration across all roles; SHT4x or DHT11 temperature/humidity sensors and digital outputs for repeaters and chatrooms.</li>
+      </ul>
+      <p>Configure these additions through USB or supported authenticated administration commands. See the <a href="https://github.com/SquishywareOfficial/MeshCore-Enhanced/blob/main/README.md">fork overview</a> and <a href="https://github.com/SquishywareOfficial/MeshCore-Enhanced/releases/latest">latest release notes and downloads ↗</a>.</p>
     </section>
     <section class="steps" aria-labelledby="next-title">
       <h2 id="next-title">From USB to your mesh</h2>

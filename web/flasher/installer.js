@@ -1,8 +1,8 @@
 import { flashFirmware } from "./flash-core.js";
 
 const descriptions = {
-  repeater: "Extend the mesh. Optional battery sensing, SHT4x readings and manual GPIO outputs.",
-  room: "Host a shared chatroom, with the same peripherals plus memory and storage diagnostics. Message cache remains 32 posts in RAM.",
+  repeater: "Extend the mesh. Optional battery sensing, SHT4x or DHT11 readings, GPIO outputs and brief Wi-Fi clock sync.",
+  room: "Host a chatroom with up to 2,000 messages saved in flash, configurable catch-up, administrator replay and USB bots. Includes optional sensors, GPIO outputs and Wi-Fi clock sync.",
   ble: "Connect the MeshCore phone app over Bluetooth. Includes configurable battery sensing.",
   usb: "Connect a computer client over USB. Includes configurable battery sensing.",
   serial: "Connect a client through UART on D6/D7. These pins are reserved for the serial connection.",
