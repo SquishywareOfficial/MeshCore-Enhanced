@@ -4,7 +4,7 @@ Use one `## <tag>` section per stable Enhanced Release. Version tags use the
 format `v<major>.<minor>.<patch>-sq<number>`, for example `v1.17.1-sq3`.
 Commit the notes to `main` and wait for the XIAO workflow to pass before tagging.
 
-## Unreleased
+## v1.17.1-sq7
 
 - SQ7 XIAO room: independently saved `chat_ReplayAmount` (default 100, existing
   values preserved) and `chat_HistoryAmount` (default 2,000), both bounded 1-2,000.
@@ -58,13 +58,14 @@ Commit the notes to `main` and wait for the XIAO workflow to pass before tagging
   playback=200 after a user-performed power cycle. A server-generated post was
   acknowledged by the companion and confirmed visible in the phone app.
 
-No Release tag has been created for these changes.
-
 XIAO room smoke checks additionally verified settings/identity retention, DHT11,
 PSRAM, saved playback limits and posts across soft reboots. Hardware testing
-corrected startup stack usage and the ESP-IDF 4.4 SPIFFS sync path. The numbered
-200-post phone catch-up test is in progress; full 2,000-post physical capacity,
-loaded resource acceptance and power interruption during writes remain pending.
+corrected startup stack usage and the ESP-IDF 4.4 SPIFFS sync path. The SQ7
+application-only hardware update preserved all 223 prior posts, identity,
+settings and saved member progress; USB history reads and startup Wi-Fi sync
+were verified. Targeted radio replay and saved-alias power-cycle checks remain
+pending, along with full 2,000-post physical capacity, loaded resource acceptance
+and power interruption during writes.
 
 ## v1.17.1-sq3
 
